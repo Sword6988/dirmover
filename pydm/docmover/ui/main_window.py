@@ -449,7 +449,12 @@ class MainWindow:
         for key, _header, _anchor, quota, locked in columns.COLUMNS:
             # 保护列（名称 / 状态）下限 = 内容需要宽度：窗口再小也不裁字。
             # 路径列下限为硬下限：可以被压缩，完整内容由悬停提示兜底。
-            minimums.append(needs.get(key, 0) if locked else px(columns.MIN_COL))
+            hard = px(columns.MIN_COL)
+            # 保护列还要再加一道硬下限兜底：字体度量偏小的机器上（例如缺中文首选
+            # 字体、只能回退到西文字体的环境），measure 会把中文字形量得过窄，
+            # 只按 need 取下限会退化出几十像素的窄列——此时测量与渲染所用的
+            # 字体并不一致，硬下限保证列宽不低于「一行可读文本」的常识下限。
+            minimums.append(max(needs.get(key, 0), hard) if locked else hard)
             quotas.append(px(quota))
         fit = columns.fit_columns([needs.get(k, 0) for k in keys],
                                   minimums, quotas, viewport)

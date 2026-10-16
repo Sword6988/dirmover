@@ -193,13 +193,27 @@ class TestMainWindowSmoke(unittest.TestCase):
     def test_status_column_fits_labels(self):
         """状态列必须留得下状态文案（历史缺陷：150px 列宽 + 过长文案被硬裁）。
 
-        自适应改造后这条契约不变，而且更强：状态列下限 = 内容需要宽度，
-        窗口再小也不裁字（见 test_column_contract_* 系列）。
+        自适应改造后这条契约不变，而且更强：状态列下限 = 内容需要宽度（且不低于
+        文本列硬下限），窗口再小也不裁字（见 test_column_contract_* 系列）。
+
+        注意：这里的下限用 ``column_rules.MIN_COL`` 而不是字面量 90——不同机器装
+        的字体不同（首个可用字体由 ``FONT_FAMILY_CANDIDATES`` 现场挑选），只有
+        「内容需要宽度」与「逻辑像素硬下限」才是与字体无关的契约。
         """
         window = self._make()
         width = int(window.tree.column("status", "width"))
-        self.assertGreaterEqual(width, self._column_need("status"))
-        self.assertGreaterEqual(width, window.theme.px(90))
+        need = self._column_need("status")
+        # 失败时把环境一并打印出来：字体 / 缩放 / 视口 / 各列宽，便于定位是
+        # 「布局算错」还是「这台机器的字体度量不一样」。
+        detail = (
+            f"status={width} need={need} "
+            f"MIN_COL={window.theme.px(column_rules.MIN_COL)} "
+            f"font={window.theme.ui_font} scale={window.theme.scale} "
+            f"viewport={window._table_viewport()} widths={self._widths(window)}"
+        )
+        self.assertGreaterEqual(width, need, msg=detail)
+        self.assertGreaterEqual(width, window.theme.px(column_rules.MIN_COL),
+                                msg=detail)
 
     # ------------------------------------------------- 列宽自适应（列宽契约）
     def _column_need(self, key: str) -> int:
