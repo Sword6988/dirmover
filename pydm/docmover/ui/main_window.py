@@ -450,10 +450,11 @@ class MainWindow:
             # 保护列（名称 / 状态）下限 = 内容需要宽度：窗口再小也不裁字。
             # 路径列下限为硬下限：可以被压缩，完整内容由悬停提示兜底。
             hard = px(columns.MIN_COL)
-            # 保护列还要再加一道硬下限兜底：字体度量偏小的机器上（例如缺中文首选
-            # 字体、只能回退到西文字体的环境），measure 会把中文字形量得过窄，
-            # 只按 need 取下限会退化出几十像素的窄列——此时测量与渲染所用的
-            # 字体并不一致，硬下限保证列宽不低于「一行可读文本」的常识下限。
+            # 保护列还要再加一道硬下限兜底：need 取自「当前表格里最长的那条文
+            # 案」，是随数据漂移的——目标目录不存在时状态全是「待转移」，need
+            # 只有 57px，只按 need 取下限会退化出 63px 的窄列（CI 上实测为此值，
+            # 见 docs/审计报告.md §8.26）。硬下限保证列宽不低于「一行可读文本」
+            # 的常识下限，执行期出现「将合并…」等长文案时也不用临时挤宽。
             minimums.append(max(needs.get(key, 0), hard) if locked else hard)
             quotas.append(px(quota))
         fit = columns.fit_columns([needs.get(k, 0) for k in keys],
