@@ -177,7 +177,13 @@ def check_compile() -> List[str]:
     return problems
 
 
-def check_tests() -> Tuple[bool, str]:
+def check_tests() -> Tuple[bool, str, str]:
+    """跑全量单测，返回 ``(是否通过, 一行汇总, 原始输出)``。
+
+    审计 §8.25：第三个返回值是 unittest 的**原始输出**（含失败用例与 traceback）。此前
+    只回显一行汇总，导致 **CI 上失败时无从定位**（runner 上无法本地复现，日志里只有
+    ``Ran N tests ... FAILED``）。保留原始输出供 ``main()`` 在失败时回显。
+    """
     # 审计 E1（次序陷阱）：子进程默认**会**写 ``.pyc``——它继承本进程环境，但本
     # 进程未必带 ``PYTHONDONTWRITEBYTECODE``。若不显式关掉，导入 ``docmover`` 就会
     # 在交付树里生成 ``__pycache__``，使紧随其后的「编译缓存」守卫**必然**失败。
@@ -193,14 +199,15 @@ def check_tests() -> Tuple[bool, str]:
         errors="replace",
         env=env,
     )
-    tail = ((result.stderr or "") + "\n" + (result.stdout or "")).strip().splitlines()
+    output = ((result.stderr or "") + "\n" + (result.stdout or "")).strip()
+    tail = output.splitlines()
     # unittest 的汇总（`Ran 155 tests in …s` / `OK`）打到 stderr；取「Ran …」行 +
     # 末行状态，让门禁能显示条数（此前只取 stdout → 汇总恒为空）。判定逻辑不变。
     lines = [ln.strip() for ln in tail if ln.strip()]
     ran = next((ln for ln in reversed(lines) if ln.startswith("Ran ")), "")
     status = lines[-1] if lines else ""
     summary = f"{ran} {status}".strip() if ran else status
-    return result.returncode == 0, summary
+    return result.returncode == 0, summary, output
 
 
 def check_no_bytecode() -> List[str]:
@@ -326,12 +333,18 @@ def main() -> int:
     else:
         print("[OK] 语法编译（全部 .py）")
 
-    ok, summary = check_tests()
+    ok, summary, test_output = check_tests()
     if ok:
         print(f"[OK] 单元测试：{summary}")
     else:
         failed = True
         print(f"[FAIL] 单元测试未通过：{summary or '（无输出）'}")
+        # 审计 §8.25：CI 上无法复现 runner 环境，只有一行汇总等于「只报丧不给线索」。
+        # 故在失败时把 unittest 原始输出（含 FAIL 用例名与 traceback）回显；限长防刷屏。
+        print("------- unittest 输出（尾部 80 行）-------")
+        for line in test_output.splitlines()[-80:]:
+            print(line)
+        print("------- unittest 输出结束 -------")
 
     # 审计 E1：跑在测试**之后**——即便 check_tests 的环境隔离将来被改坏，本条也能
     # 立刻抓到它新写出的 __pycache__/*.pyc（更靠后比更靠前更保险）。
