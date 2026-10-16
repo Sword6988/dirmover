@@ -1,0 +1,41 @@
+# UTF-8
+#
+# PyInstaller 版本信息文件（zh-CN + Unicode），**模板**。
+#
+# 审计 P2-19：版本号只有一个真源 = docmover/constants.py 的 APP_VERSION。
+# 本文件不得出现手写的版本数字：构建时由 build.py 读取本模板，把下面的占位符
+# 替换成 APP_VERSION 派生值后，写到 build_work/version_info.txt 再传给 PyInstaller。
+#   __APP_VER_TUPLE__ → 4 段数字元组，如 "3, 0, 0, 0"
+#   __APP_VER_4__     → 4 段数字字符串，如 "3.0.0.0"
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(__APP_VER_TUPLE__),
+    prodvers=(__APP_VER_TUPLE__),
+    mask=0x3F,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0),
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable("080404b0", [
+          StringStruct("CompanyName", "ajian"),
+          StringStruct("FileDescription", "用户数据转移工具"),
+          StringStruct("FileVersion", "__APP_VER_4__"),
+          StringStruct("InternalName", "DirMover"),
+          StringStruct("LegalCopyright", "Copyright (c) 2026 ajian"),
+          StringStruct("OriginalFilename", "DirMover.exe"),
+          StringStruct("ProductName", "用户数据转移工具"),
+          # ProductVersion 是 Windows 文件属性「产品版本」的来源；缺了它该栏为空白
+          # （FileVersion 只填「文件版本」）。与 FileVersion 同源自 APP_VERSION。
+          StringStruct("ProductVersion", "__APP_VER_4__"),
+          StringStruct("Comments", "用户数据转移工具"),
+        ])
+      ]
+    ),
+    VarFileInfo([VarStruct("Translation", [2052, 1200])]),
+  ]
+)

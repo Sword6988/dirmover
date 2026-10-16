@@ -1,0 +1,56 @@
+%% 主流程时序图：界面构建 + 开始转移 + 完成后可选重启资源管理器
+%% 所有 UI 回调经 _post/_drain_queue 回到主线程（不改动现有机制）
+sequenceDiagram
+    autonumber
+    participant User as 用户
+    participant MW as MainWindow
+    participant Q as queue/_drain_queue
+    participant Engine as TransferEngine
+    participant FS as fsops/shell
+
+    Note over MW: 启动
+    MW->>MW: _build() 单屏网格 (DestinationBar/FolderTable/ActionBar/StatusBar)
+    MW->>MW: _post(_refresh_rows)
+    Q->>MW: _refresh_rows()
+    MW->>Engine: build_plan(7 keys, dest, create_user_dir, scan=False)
+    Engine-->>MW: List[PlanItem]
+    MW->>MW: _render_marks + _update_summary
+
+    User->>MW: 点击「开始转移」
+    MW->>MW: _validate()
+    alt 校验失败
+        MW-->>User: showwarning「无法开始」
+    else 无可转移项
+        MW-->>User: showinfo「无需转移」
+    else 校验通过
+        MW-->>User: askyesno「确认开始转移」(warning)
+        User-->>MW: 确认
+        MW->>MW: _set_controls_enabled(False)
+        MW->>Engine: 后台线程构建 scan=True 计划 + execute(...)
+        loop 每一项
+            Engine-->>Q: on_item_start(item)
+            Q->>MW: 当前行 tags=active
+            Engine->>FS: copy/verify/rename → write_registry
+            Engine-->>Q: on_progress(done,total,name)
+            Q->>MW: progress 推进 + status 文字
+            Engine-->>Q: on_item_done(item)
+            Q->>MW: 行 tags=done/failed
+        end
+        Engine-->>Q: TransferReport
+        Q->>MW: _after_transfer(report)
+        MW->>MW: _finish_work + _refresh_rows
+        alt report.failed
+            MW-->>User: showwarning「部分项目未完成」
+        else 全部成功
+            MW-->>User: showinfo「操作完成」
+        end
+        opt 非 dry-run 且成功
+            MW-->>User: askyesno「重启资源管理器」
+            User-->>MW: 是
+            MW->>FS: shell.restart_explorer(store, dry_run)
+        end
+    end
+
+    Note over User,MW: 过程详情（任意时刻）
+    MW->>FS: logging_setup 写文件日志 → logs\DirMover-YYYYMMDD.log
+    Note over User,MW: 界面无日志区域（2026-10-13 已移除日志抽屉）

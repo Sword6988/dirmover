@@ -1,0 +1,29 @@
+# 构建产物 / 运行期生成（审计 P3-3）
+dist/
+pydm/build_work/
+
+# 运行期自动生成
+pydm/logs/
+pydm/backups/
+pydm/_gui_err.log
+logs/
+backups/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 打包 / 环境
+pydm/*.spec
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
+
+# 内部 / 开发产物（不随源码发布）
+.workbuddy/
+dev_archive/

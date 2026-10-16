@@ -1,0 +1,7 @@
+# 全仓库文本文件统一 LF（与 pydm/.gitattributes 同口径；根目录文件此前未被覆盖，
+# 在 core.autocrlf=true 的 Windows 检出下会被转成 CRLF——见审计遗留项「文本统一 LF」）
+* text=auto eol=lf
+*.ico binary
+*.png binary
+*.exe binary
+*.pyc binary

@@ -1,0 +1,140 @@
+%% 界面组件类图（现行：单屏 7 行网格，无日志抽屉）
+%% 说明：业务逻辑类（TransferEngine 等）保持不变；UI 模块拆为职责清晰的区域。
+%% 变更（2026-10-13）：LogDrawer 已随日志抽屉一并移除。
+%% 变更（2026-10-14）：IconFactory 现提供 chevron_down（下拉箭头，圆头）与
+%%   status（弹窗语义图标）；下拉箭头已由 icons 渲染管线重新接管，不再使用原生箭头。
+%%   弹窗整体收敛到独立模块 ui/dialogs.py（不再调用原生 messagebox）。
+classDiagram
+    class MainWindow {
+        +tk.Tk root
+        +AppConfig config
+        +bool dry_run
+        +Theme theme
+        +set _checked
+        +dict _plans
+        +dict _last_outcomes
+        +bool _busy
+        +Event _cancel
+        +Queue _queue
+        +_build()
+        +_build_destination_bar()
+        +_build_folder_table()
+        +_build_action_bar()
+        +_build_statusbar()
+        +_refresh_rows()
+        +_render_marks()
+        +_toggle(key)
+        +_update_summary()
+        +_update_start_state()
+        +_validate()
+        +_on_start()
+        +_on_restore_defaults()
+        +_on_exit()
+        +_on_ctrl_enter()
+        +_after_transfer(report)
+        +_confirm_restart_explorer()
+        +_check_pending_intent()
+        +_rollback_from_snapshot(path)
+        +_poll_exit()
+        +_set_controls_enabled(bool)
+        +_post(fn, *args)
+        +_drain_queue()
+        +_show_admin_banner()
+    }
+
+    class DestinationBar {
+        <<region>>
+        +StringVar dest_var
+        +Combobox dest_combo
+    }
+
+    class FolderTable {
+        <<region>>
+        +Treeview tree
+        +Scrollbar scroll
+    }
+
+    class ActionBar {
+        <<region>>
+        +BooleanVar select_all_var
+        +BooleanVar create_user_dir_var
+        +Label lbl_summary
+        +Button btn_start
+        +Button btn_restore
+        +Button btn_exit
+    }
+
+    class StatusBar {
+        <<region>>
+        +StringVar status_var
+        +Progressbar progress
+        +Label badge
+    }
+
+    class AdminBanner {
+        <<region>>
+        +Frame banner
+        +Label message
+        +Link relaunch
+    }
+
+    class Theme {
+        +dict COLORS
+        +float scale
+        +px(v) int
+        +checkbox(checked, disabled, hover, pressed)
+        +icon(name, units)
+        +apply_treeview_row_tags(tree)
+    }
+    class IconFactory {
+        +checkbox(checked, disabled, hover, pressed)
+        +chevron_down(units, color)
+        +status(kind, units)
+    }
+    class Dialogs {
+        <<module ui/dialogs.py>>
+        +show_info(parent, title, body)
+        +show_success(parent, title, body)
+        +show_warning(parent, title, body)
+        +show_error(parent, title, body)
+        +ask_yes_no(parent, title, body, kind)
+        +ask_yes_no_cancel(parent, title, body)
+    }
+    class ToolTip
+
+    class TransferEngine {
+        +build_plan(keys, dest, create_user_dir, scan)
+        +execute(plan, ...)
+        +restore_defaults(keys, ...)
+    }
+    class PlanItem {
+        +str current
+        +str target
+        +bool same
+        +describe() str
+    }
+    class TransferReport {
+        +list outcomes
+        +summary() str
+        +bool failed
+    }
+    class AppConfig {
+        +str destination
+        +bool create_user_dir
+        +list selected
+    }
+
+    MainWindow --> DestinationBar : 构建
+    MainWindow --> FolderTable : 构建
+    MainWindow --> ActionBar : 构建
+    MainWindow --> StatusBar : 构建
+    MainWindow --> AdminBanner : 条件构建
+    MainWindow --> Theme
+    MainWindow --> AppConfig
+    MainWindow --> TransferEngine
+    MainWindow ..> ToolTip
+    MainWindow ..> Dialogs : 弹窗
+    Theme --> IconFactory
+    FolderTable ..> Theme : checkbox 图标
+    TransferEngine --> PlanItem
+    TransferEngine --> TransferReport

@@ -1,0 +1,23 @@
+# 构建期依赖（审计 P2-18 / D2）。
+#
+# 运行时**零第三方依赖**（仅 Python 标准库），本文件只登记「打包 exe」这一步需要的
+# 工具。
+#
+# 构建必须在**隔离的 Python 3.14 虚拟环境**中进行：build.py 会强断言构建解释器
+# 精确等于 3.14（D3），且 PyInstaller 版本精确等于本文件的 pin（D2），否则拒绝打包。
+# 推荐做法（路径自定；`.venv-build` 已被 tools/ci_check.py 的守卫跳过）：
+#
+#     # 1) 用 Python 3.14 建隔离 venv
+#     py -3.14 -m venv .venv-build          # 或 <指向 3.14 的解释器> -m venv .venv-build
+#     # 2) 在 venv 内装固定版本工具链
+#     .venv-build\Scripts\python -m pip install -r requirements-build.txt
+#     # 3) 用该 venv 打包
+#     .venv-build\Scripts\python build.py
+#
+# PyInstaller 版本必须与构建机器实际使用的一致，固定版本以保证可复现构建
+# （exe 内嵌构建解释器的 CPython，见 build.py 的版本断言）。
+pyinstaller==6.22.2
+
+# 可选（非打包必需）：tools/screenshot.py 与 tools/smoke_exe.py 的截图功能依赖
+# Pillow；仅在做界面目视验收时才需要，故默认注释。
+# pillow>=10

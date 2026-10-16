@@ -1,0 +1,6 @@
+# 交付树内文本文件一律 LF：Windows 检出也不做 CRLF 转换（审计遗留项）
+* text=auto eol=lf
+*.ico binary
+*.png binary
+*.exe binary
+*.pyc binary

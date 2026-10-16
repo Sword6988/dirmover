@@ -1,0 +1,29 @@
+name: ci
+
+# 审计 P2-23：把仓库级的本地门禁（编译 + 全量单测 + 红线守卫）接到 CI。
+# ci_check.py 零第三方依赖，因此这层也适用于本地：`python pydm/tools/ci_check.py`。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pydm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          # 审计 P2-18（问题#6）：CI 解释器与**构建/本地测试**保持一致（3.14）。
+          # 本地测试与 build.py 都在 3.14 上运行（exe 内嵌的即该 CPython），若 CI
+          # 用别的版本，就掩盖了「构建/测试解释器不一致」这类只在特定版本暴露的问题。
+          python-version: "3.14"
+
+      - name: Run local gate (compile + tests + red lines)
+        run: python tools/ci_check.py
