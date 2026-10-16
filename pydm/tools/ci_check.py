@@ -4,6 +4,10 @@
     <python> tools/ci_check.py
 退出码：0 = 全部通过；非 0 = 有失败项。
 输出一律用 ``[OK]`` / ``[FAIL]``（避免 GBK 控制台无法编码 ✓/✗ 或 emoji）。
+
+审计 §8.25：输出流在导入时被强制为 UTF-8（见下方 ``_force_utf8_output``）。本文有中文
+标题与中文失败原因，而 CI runner 的控制台编码未必是 UTF-8（GitHub windows runner 实测
+为 **cp1252**），不处理会在第一行 ``print`` 就抛 ``UnicodeEncodeError`` 直接退出。
 """
 
 from __future__ import annotations
@@ -14,6 +18,25 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable, List, Tuple
+
+
+def _force_utf8_output() -> None:
+    """把 stdout/stderr 切到 UTF-8，使门禁在任意控制台编码下都不会因中文而崩。
+
+    仅在流支持 ``reconfigure``（Python 3.7+ 的 TextIOWrapper）时生效；失败则静默跳过，
+    退化为原有行为——即**不会**因为这段兼容代码本身引入新的失败模式。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
+
+
+_force_utf8_output()
 
 ROOT = Path(__file__).resolve().parent.parent          # pydm/
 UI_DIR = ROOT / "docmover" / "ui"

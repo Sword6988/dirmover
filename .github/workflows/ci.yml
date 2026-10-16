@@ -13,6 +13,12 @@ jobs:
     defaults:
       run:
         working-directory: pydm
+    # 审计 §8.25：GitHub windows runner 的控制台编码是 cp1252，而门禁输出含中文
+    # （标题与失败原因）。不强制 UTF-8 会在第一行 print 就抛 UnicodeEncodeError，
+    # 表现为「CI 恒红但本地全绿」。ci_check.py 自身也做了同样的兜底（双保险）。
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
