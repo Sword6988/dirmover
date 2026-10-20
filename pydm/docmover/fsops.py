@@ -26,11 +26,16 @@ import shutil
 import stat
 import string
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .constants import FORBIDDEN_TARGET_ROOTS
+from .constants import (
+    FORBIDDEN_TARGET_ROOTS,
+    REMOVE_RMTREE_ATTEMPTS,
+    REMOVE_RMTREE_BACKOFF,
+)
 
 ProgressCallback = Callable[[int, int, str], None]
 CancelCallback = Callable[[], bool]
@@ -1287,17 +1292,128 @@ def verify_copy(
     return True, detail
 
 
+# ------------------------------------------- 删源收尾：只读属性与短时占用（审计修复）
+#
+# 现场（另一台机器，7 项全失败）：每一项都「数据已完整复制并校验通过、注册表已更新 2 处」，
+# 唯一失败的是最后一步删源，报错形如 ``[WinError 5] 拒绝访问。:
+# 'C:\\Users\\<用户>\\Documents'``。三个细节指向同一个机理：
+#   * 报错路径是**顶层目录本身**，不是里面某个文件 —— ``rmtree`` 先删子项、最后删
+#     目录本身，说明子项都删成功了，卡在末次 ``rmdir``；
+#   * 失败的全是**已知文件夹**（文档 / 图片 / 音乐 / 视频 / 收藏夹）—— 这些正是资源
+#     管理器（变更通知）、Windows 搜索索引、杀软实时扫描常年持有句柄的对象；
+#   * 本版本「重启资源管理器」排在删源**之后**且只在全部成功时才询问，故这类机器上
+#     explorer 全程活着，句柄不会被释放。
+#
+# 对策分两层，**都不改变「校验通过才删源」的前置条件**，只把「删不掉时多试几次」
+# 补上，并把失败原因说清楚：
+#   1. 单次 ``rmtree`` 内部（``onexc``）：只读属性导致的失败 → 清属性后原地重试一次；
+#   2. 整树删除的外层：仅对 ``WinError 5/32/33``（拒绝访问 / 共享冲突 / 锁冲突）
+#      退避重试；其余错误（路径不存在、参数错误等）立即失败，不做无谓等待。
+
+_TRANSIENT_REMOVE_WINERRORS = frozenset({5, 32, 33})
+
+
+def _remove_backoff(retry_index: int) -> float:
+    """第 ``retry_index`` 次重试（1 起）前应等待的秒数；超出列表长度时取末值。"""
+    if not REMOVE_RMTREE_BACKOFF:
+        return 0.0
+    last = len(REMOVE_RMTREE_BACKOFF) - 1
+    return float(REMOVE_RMTREE_BACKOFF[min(max(retry_index - 1, 0), last)])
+
+
+def _is_transient_remove_error(exc: OSError) -> bool:
+    """该错误是否值得退避重试：只有「占用型」三类算，其余一律快速失败。"""
+    return getattr(exc, "winerror", None) in _TRANSIENT_REMOVE_WINERRORS
+
+
+def _clear_readonly(target: str) -> bool:
+    """清掉 ``target`` 自身的只读属性；属性本就可写时返回 ``False``（未改动）。
+
+    只在 ``rmtree`` 报告**某个路径**删不掉时被调用，故作用面仅限那一个路径，
+    不会批量改动整棵树。清不掉（权限不足 / 路径已消失）时返回 ``False``，
+    由调用方把原错误抛出去。
+    """
+    try:
+        mode = os.stat(_lp(target)).st_mode
+        if mode & stat.S_IWRITE:
+            return False
+        os.chmod(_lp(target), mode | stat.S_IWRITE)
+        return True
+    except OSError:
+        return False
+
+
+def _rmtree_onexc(func, target: str, exc: OSError) -> None:
+    """``shutil.rmtree`` 的 ``onexc`` 钩子：清只读后原地重试一次，仍失败则抛出。
+
+    **绝不能静默返回**：在 ``rmtree`` 眼里「钩子返回」等于「这一项已处理」，那会在
+    源目录里留下残骸却报告删除成功——正是本项目反复排查过的那类「静默漏项」。
+    故这里只在**重试真的成功**时返回，任何失败都抛出，交给外层退避重试或最终报错。
+    """
+    if _clear_readonly(target):
+        try:
+            func(_lp(target))
+            return
+        except OSError as retry_exc:
+            raise retry_exc from exc
+    raise exc
+
+
+# ``shutil.rmtree`` 的失败钩子在 3.12 起改名为 ``onexc``（直接收到异常对象）；旧名
+# ``onerror`` 收到 ``exc_info`` 三元组，且在 3.12+ 触发弃用警告。本项目**打包**用 3.14，
+# 但源码运行下限仍声明为 3.10（见 ``build.py`` 的运行时要求注释），故按版本派发。
+# 两条路径都必须被用例钉住（``_HAS_ONEXC`` 可被测试改写），否则「3.10 下删源直接
+# TypeError」这类问题会一路带进发布——TypeError 不是 ``OSError``，连重试都兜不住。
+_HAS_ONEXC = sys.version_info >= (3, 12)
+
+
+def _onerror_compat(func, target: str, exc_info) -> None:
+    """``onerror`` 形态（<3.12）→ 统一转成 :func:`_rmtree_onexc` 的入参形态。"""
+    _rmtree_onexc(func, target, exc_info[1])
+
+
+def _rmtree_with_hook(path: str) -> None:
+    """按解释器版本把失败钩子挂到 ``shutil.rmtree`` 上（3.12+ 用 ``onexc``）。"""
+    if _HAS_ONEXC:
+        shutil.rmtree(path, onexc=_rmtree_onexc)
+    else:
+        shutil.rmtree(path, onerror=_onerror_compat)
+
+
 def safe_remove_directory(path: str) -> Tuple[bool, str]:
-    """仅删除目录，且要求它确实是目录。"""
+    """仅删除目录，且要求它确实是目录。
+
+    删不掉时按「只读属性 → 清属性重试一次；占用型错误 → 短退避再试整棵树」处理
+    （见上方 ``_TRANSIENT_REMOVE_WINERRORS`` 一节）。重试用尽仍失败时，文案必须
+    给出可操作的下一条路（多为占用，重启本机后删除），而不是只甩一个 errno。
+    """
     if not os.path.exists(_lp(path)):
         return True, "源目录已不存在"
     if not os.path.isdir(_lp(path)):
         return False, f"拒绝删除非目录对象：{path}"
-    try:
-        shutil.rmtree(_lp(path), ignore_errors=False)
-        return True, "已删除源目录"
-    except OSError as exc:
-        return False, f"删除源目录失败：{exc}"
+
+    attempts = max(1, int(REMOVE_RMTREE_ATTEMPTS))
+    last_exc: Optional[OSError] = None
+    tried = 0
+    for index in range(attempts):
+        if index:
+            time.sleep(_remove_backoff(index))
+        tried += 1
+        try:
+            _rmtree_with_hook(_lp(path))
+            return True, "已删除源目录"
+        except OSError as exc:
+            last_exc = exc
+            # 上一轮实际已删干净（例如末步报错、目录却已消失）——不能反过来报失败。
+            if not os.path.exists(_lp(path)):
+                return True, "已删除源目录"
+            if not _is_transient_remove_error(exc):
+                break
+
+    detail = f"删除源目录失败：{last_exc}"
+    if tried > 1:
+        detail += f"（已尝试 {tried} 次）"
+    return False, detail + "；多为资源管理器、Windows 搜索索引或杀毒软件仍在占用该目录，重启本机后即可删除"
 
 
 def try_atomic_move(src: str, dst: str) -> Tuple[bool, str]:

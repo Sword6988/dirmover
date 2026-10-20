@@ -11,7 +11,7 @@ from typing import Tuple
 
 APP_NAME = "DirMover"
 APP_TITLE = "用户数据转移工具"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.0.1"
 APP_AUTHOR = "ajian"
 
 LOG_DIRNAME = "logs"
@@ -61,6 +61,20 @@ SPACE_MARGIN_BYTES = 64 * 1024 * 1024
 RESTART_EXPLORER_TIMEOUT = 20
 RESTART_TERM_WAIT = 1.5
 RESTART_RELAUNCH_WAIT = 1.0
+
+# 删源收尾的失败重试（``fsops.safe_remove_directory``）：
+#   REMOVE_RMTREE_ATTEMPTS   整树删除的**总尝试次数**（含首次）
+#   REMOVE_RMTREE_BACKOFF    每次重试前的等待（秒）；重试次数多于列表长度时取末值
+#
+# 动机（现场）：目标机上 7 个已知文件夹全部「复制校验通过、注册表已更新，仅删源报
+# WinError 5」，且报错路径都是**顶层目录本身**——子项已删完、卡在最后一次 rmdir，
+# 属「目录对象仍被进程持有句柄」（资源管理器的变更通知、Windows 搜索索引、杀软实时
+# 扫描都会这样占着）。退避重试能把「短时占用」从失败里摘出去。
+#
+# 总等待刻意压在 1 秒以内：本函数运行在「停止 / 关窗」收尾路径上（退出等待上限
+# 60 秒，见 ``ui/main_window.py``），不能让重试把收尾拖到超时强杀。
+REMOVE_RMTREE_ATTEMPTS = 3
+REMOVE_RMTREE_BACKOFF = (0.2, 0.5)
 
 # 风险等级
 RISK_NORMAL = "normal"

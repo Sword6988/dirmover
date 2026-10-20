@@ -1248,7 +1248,7 @@ class TransferEngine:
                 outcome.status = ST_FAILED
                 outcome.message = (
                     f"{message}；数据已完整复制并校验通过，但清理源目录失败："
-                    f"{remove_message}。可手动删除 {item.current}"
+                    f"{remove_message}（源目录：{item.current}）"
                 )
                 self.journal.mark(item, "source-removal-failed")
                 self._log(f"[{item.display}] {outcome.message}", "warning")

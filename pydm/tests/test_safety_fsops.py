@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -697,6 +699,195 @@ class TestEnumerateSourceLongPrefix(unittest.TestCase):
             self.assertIn("sub", tree.dirs)
             self.assertIn(os.path.join("sub", "a.txt"), tree.files)
             self.assertIn("top.txt", tree.files)
+
+
+# ------------------------------- 删源收尾重试（只读属性 / 短时占用）
+#
+# 现场来源：另一台机器上 7 个已知文件夹**全部**「数据已完整复制并校验通过、注册表已
+# 更新 2 处，仅删源失败 [WinError 5]」，且报错路径都是顶层目录本身 —— 子项已删完、
+# 卡在末次 ``rmdir``，典型是资源管理器 / 搜索索引 / 杀软持有目录句柄。
+#
+# 用例口径：本机托管 Python 的 ``sitecustomize`` 会把 ``shutil.rmtree`` / ``os.unlink``
+# 换成「先扔回收站」的包装（删不掉就直接抛自带异常），**真实语义不可依赖**。故这组
+# 用例一律把 ``rmtree`` 打桩、或直接驱动 ``onexc`` 钩子，只钉「我们自己的那段逻辑」，
+# 结论与宿主环境无关。每条用例都写明「删掉哪段实现会让它变红」。
+
+class TestSafeRemoveDirectoryRetry(unittest.TestCase):
+    """``safe_remove_directory`` 的重试与文案（新增）。"""
+
+    def setUp(self):
+        base = Path("D:/tmp")            # 项目口径：临时目录建在 D:/tmp，不落 %TEMP%
+        base.mkdir(parents=True, exist_ok=True)
+        self.root = Path(tempfile.mkdtemp(dir=str(base)))
+
+        def _cleanup():
+            try:
+                os.chmod(str(self.root), 0o700)
+            except OSError:
+                pass
+            shutil.rmtree(str(self.root), ignore_errors=True)
+
+        self.addCleanup(_cleanup)
+
+    def _make_dir(self, name: str = "src") -> Path:
+        target = self.root / name
+        target.mkdir()
+        (target / "a.txt").write_bytes(b"A")
+        return target
+
+    @staticmethod
+    def _perm_error(target: str, winerror: int) -> PermissionError:
+        """构造带 ``winerror`` 的 ``PermissionError``（Windows 上的真实形态）。"""
+        return PermissionError(errno.EACCES, "拒绝访问", target, winerror)
+
+    # ---- 接线：钩子必须真的交给 rmtree（两条版本路径都要钉） ----
+
+    def test_passes_onexc_hook_to_rmtree(self):
+        """删掉 ``_rmtree_with_hook`` 里的 ``onexc=_rmtree_onexc`` → 本用例变红。"""
+        target = self._make_dir()
+        with mock.patch.object(fsops.shutil, "rmtree") as rmtree:
+            ok, msg = fsops.safe_remove_directory(str(target))
+        self.assertTrue(ok, msg)
+        self.assertIs(rmtree.call_args.kwargs.get("onexc"), fsops._rmtree_onexc)
+
+    def test_falls_back_to_onerror_below_python_312(self):
+        """删掉 3.12 以下的 ``onerror`` 兼容分支 → 本用例变红。
+
+        存在理由：源码运行下限声明为 3.10（``build.py``），而 ``onexc`` 是 3.12 才有的
+        关键字。不做版本派发时，3.10/3.11 上删源会抛 ``TypeError``（不是 ``OSError``，
+        连重试都兜不住），整项直接以异常告终。
+        """
+        target = self._make_dir()
+        with mock.patch.object(fsops, "_HAS_ONEXC", False), \
+                mock.patch.object(fsops.shutil, "rmtree") as rmtree:
+            ok, msg = fsops.safe_remove_directory(str(target))
+
+        self.assertTrue(ok, msg)
+        kwargs = rmtree.call_args.kwargs
+        self.assertNotIn("onexc", kwargs)
+        self.assertIs(kwargs.get("onerror"), fsops._onerror_compat)
+
+        # ``onerror`` 收到的是 exc_info 三元组，必须把里面的异常取出来交给同一个钩子
+        err = self._perm_error(str(target), 5)
+        with mock.patch.object(fsops, "_rmtree_onexc") as hook:
+            fsops._onerror_compat(os.unlink, str(target), (PermissionError, err, None))
+        hook.assert_called_once_with(os.unlink, str(target), err)
+
+    # ---- 钩子层：只读属性 → 清属性后原地重试一次 ----
+
+    def test_onexc_clears_readonly_then_retries(self):
+        """钩子只 ``raise`` 不清属性（或清了属性却不重试）→ 本用例变红。"""
+        target = self._make_dir() / "a.txt"
+        os.chmod(str(target), 0o444)
+        self.assertTrue(os.stat(str(target)).st_file_attributes
+                        & stat.FILE_ATTRIBUTE_READONLY)
+        calls = []
+
+        def windows_unlink(one_path):
+            """模拟 Windows 语义：只读文件删除返回 WinError 5，可写时真删。"""
+            calls.append(one_path)
+            if os.stat(one_path).st_file_attributes & stat.FILE_ATTRIBUTE_READONLY:
+                raise self._perm_error(one_path, 5)
+            os.remove(one_path)
+
+        # 钩子返回（不抛）即代表「重试成功」：首次失败由测试直接构造，故 func 只被调
+        # 这一次——但必须**真的被调**且**删掉了**（不清属性就重试会再抛、不重试则文件还在）。
+        fsops._rmtree_onexc(windows_unlink, str(target), self._perm_error(str(target), 5))
+        self.assertEqual(len(calls), 1, "清属性后应当原地重试一次（func 必须被重新调用）")
+        self.assertFalse(target.exists())
+
+    def test_onexc_never_swallows_persistent_error(self):
+        """钩子在重试仍失败时 ``return``（吞掉错误）→ rmtree 会报告成功却留残骸 → 变红。
+
+        目标刻意设成**只读**：否则 ``_clear_readonly`` 直接返回 ``False``、走不到
+        「重试失败」那条分支，这条用例就只在错的层上通过（变异检验已实证）。
+        """
+        target = self._make_dir() / "a.txt"
+        os.chmod(str(target), 0o444)
+        first = self._perm_error(str(target), 32)
+
+        def always_fail(_path):
+            raise self._perm_error(str(target), 32)
+
+        with self.assertRaises(PermissionError):
+            fsops._rmtree_onexc(always_fail, str(target), first)
+
+    # ---- 外层：占用型错误退避重试，其它错误快速失败 ----
+
+    def test_retries_after_transient_error_and_succeeds(self):
+        """把外层 ``for index in range(attempts)`` 改成只试一次 → 本用例变红。"""
+        target = self._make_dir()
+        original_rmtree = fsops.shutil.rmtree
+        calls = []
+
+        def flaky(one_path, **kwargs):
+            calls.append(kwargs.get("onexc"))
+            if len(calls) == 1:
+                raise self._perm_error(str(one_path), 5)
+            original_rmtree(str(one_path))
+
+        with mock.patch.object(fsops.shutil, "rmtree", side_effect=flaky), \
+                mock.patch.object(fsops.time, "sleep") as sleep:
+            ok, msg = fsops.safe_remove_directory(str(target))
+
+        self.assertTrue(ok, msg)
+        self.assertEqual(len(calls), 2, "首次占用失败后应重试一次")
+        self.assertTrue(sleep.called, "重试前必须有退避等待")
+        self.assertFalse(target.exists())
+
+    def test_gives_up_after_configured_attempts_with_actionable_hint(self):
+        """删掉重试次数上限（改成无限重试 / 只试一次）或删掉文案里的指路 → 变红。"""
+        target = self._make_dir()
+        calls = []
+
+        def always_busy(one_path, **kwargs):
+            calls.append(one_path)
+            raise self._perm_error(str(one_path), 32)
+
+        with mock.patch.object(fsops.shutil, "rmtree", side_effect=always_busy), \
+                mock.patch.object(fsops.time, "sleep"):
+            ok, msg = fsops.safe_remove_directory(str(target))
+
+        self.assertFalse(ok)
+        self.assertEqual(len(calls), constants.REMOVE_RMTREE_ATTEMPTS)
+        self.assertIn("删除源目录失败", msg)          # 既有前缀不能丢（日志/界面在用）
+        self.assertIn("重启本机", msg)                 # 必须给可操作的下一步
+        self.assertTrue(target.exists(), "失败时绝不能把源目录动掉一部分就报成功")
+
+    def test_non_transient_error_fails_fast(self):
+        """把「非占用型错误立即失败」去掉（一律重试）→ 本用例变红。"""
+        target = self._make_dir()
+        calls = []
+
+        def fatal(one_path, **kwargs):
+            calls.append(one_path)
+            # WinError 3 = 系统找不到指定的路径：重试没有意义
+            raise OSError(errno.ENOENT, "系统找不到指定的路径。", str(one_path), 3)
+
+        with mock.patch.object(fsops.shutil, "rmtree", side_effect=fatal), \
+                mock.patch.object(fsops.time, "sleep") as sleep:
+            ok, msg = fsops.safe_remove_directory(str(target))
+
+        self.assertFalse(ok)
+        self.assertEqual(len(calls), 1, "非占用型错误不得重试")
+        self.assertFalse(sleep.called, "非占用型错误不得无谓等待")
+        self.assertIn("删除源目录失败", msg)
+
+    def test_treats_already_removed_directory_as_success(self):
+        """删掉「删除后复查目录是否已消失」的短路 → 目录已删干净却报失败 → 变红。"""
+        target = self._make_dir()
+        original_rmtree = fsops.shutil.rmtree
+
+        def vanish_then_fail(one_path, **kwargs):
+            original_rmtree(str(one_path))          # 真的删掉，然后谎报一个占用错误
+            raise self._perm_error(str(one_path), 5)
+
+        with mock.patch.object(fsops.shutil, "rmtree", side_effect=vanish_then_fail), \
+                mock.patch.object(fsops.time, "sleep"):
+            ok, msg = fsops.safe_remove_directory(str(target))
+
+        self.assertTrue(ok, msg)
+        self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":
