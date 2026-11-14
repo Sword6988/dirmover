@@ -375,21 +375,16 @@
         <Setter Property="Focusable" Value="False" />
         <Setter Property="Template">
             <Setter.Value>
+                <!--
+                  这里只负责替掉 WPF 默认的蓝色选中/悬停底，不放任何悬停视觉：
+                  悬停遮罩由 ItemTemplate 负责（状态底色之上、内容之下）——
+                  若在容器里再画一层，ContentPresenter 之后声明的元素会盖在内容上，
+                  不透明遮罩会把整行内容盖没，行悬停时变成一条空灰色带。
+                -->
                 <ControlTemplate TargetType="ListBoxItem">
                     <Grid Background="Transparent">
                         <ContentPresenter />
-                        <!-- 悬停遮罩：只在行内容之下、底色之上，不吃指针事件 -->
-                        <Border
-                            x:Name="HoverLayer"
-                            Background="{StaticResource RowHoverBrush}"
-                            IsHitTestVisible="False"
-                            Opacity="0" />
                     </Grid>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="HoverLayer" Property="Opacity" Value="1" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

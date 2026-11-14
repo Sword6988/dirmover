@@ -208,9 +208,9 @@ dotnet test tests\DirMover.Core.Tests   →  268 通过 / 0 失败 / 0 跳过（
 **WPF 单文件版实测（2026-11-14，本机）**：
 
 ```
-dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,009,664 B   ← 目录内只有它（无 exe.config、无 pdb）
-dist\DirMover-3.0.1-wpf-net48.zip              597,793 B
-exe SHA-256  571addfb0c4322e22fd35d9a81000554503aad0aa8cc12caaf6cb68ff5f23cdd
+dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,008,640 B   ← 目录内只有它（无 exe.config、无 pdb）
+dist\DirMover-3.0.1-wpf-net48.zip              597,376 B
+exe SHA-256  22e317bd96f88f017d95cde786825aa86b256381cbd94267e40600dd369606d4
 ```
 
 `Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
@@ -225,7 +225,7 @@ exe SHA-256  571addfb0c4322e22fd35d9a81000554503aad0aa8cc12caaf6cb68ff5f23cdd
 
 **视觉对齐轮（2026-11-14）**：界面再向便携版靠了一档——ComboBox 整模板重绘（#FBFBFB 扁平底、4px 圆角、字形箭头、8px 圆角浮层与控件同宽）、勾选框 20px + 勾号弹出动画 + 按下 92% 微缩、键盘焦点环改成 Fluent 双线式、滚动条悬停 8→12px 展开、字体回退链改 `Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI`（Win11 数字与便携版同款，Win10 回落 Segoe UI）。**Mica 试过又撤了**：便携版本身没有 Mica（纯色浅灰底），而 WPF 端做系统 backdrop 需要 `DwmExtendFrameIntoClientArea(-1)` + 透明背景，实测会透出桌面其它窗口内容且文字有合成重影——偏离便携版观感，不做。这一轮全部改动合计 **+4.6 KB**（exe 0.96→0.96 MiB 级），对比图见 `docs/ui-redesign-screenshots/wpf-aligned-main.png` 与 `wpf-aligned-combo-open.png`。顺带修掉了只在 net48 目标暴露的一批可空性警告（net48 引用程序集缺 `NotNullWhen` 注解，`IsNullOrEmpty` 不收窄——判空改写成对两个目标都成立的显式形式，net8 行为不变，268 测全绿）。
 
-**全面审计轮（2026-11-14）**：对单文件版做了一轮逐文件走读 + 实机行为测试（CLI 退出码、单实例、关窗、缩窗滚动条），发现并修掉 6 处：
+**全面审计轮（2026-11-14）**：对单文件版做了一轮逐文件走读 + 实机行为测试（CLI 退出码、单实例、关窗、缩窗滚动条），发现并修掉 6 处（第 7 条为审计后用户实测补充）：
 
 1. **CLI 跑完不退出**（最重要）：`--version` / `--help` / `--scan` / 未知参数在弹窗关闭后留下一个空主窗口，进程永远不结束——脚本调用 `DirMover.exe --version` 会一直挂着。修法：CLI 路径收尾时落退出码并关闭主窗口（`ExitAfterCli` + `CloseForCliExit`），实测四种参数各自以 0/0/2/0 退出。**这是与 WinUI 版的一处刻意分叉**：WinUI 版同样的路径仍需手动关主窗口，本轮只修了单文件版（WinUI 侧未经运行期验证，不动）。
 2. **清单缺 `longPathAware`**：WinUI 版清单一直有，net48 上这条比 .NET 8 更关键——.NET 8 会对超长路径自动补 `\\?\` 前缀，net48 不会，没有这条时 ≥260 字符的深目录复制/删除直接抛 `PathTooLongException`。已补。
@@ -233,6 +233,7 @@ exe SHA-256  571addfb0c4322e22fd35d9a81000554503aad0aa8cc12caaf6cb68ff5f23cdd
 4. **滚动条样式从未被引用**：`SlimVerticalScrollBarStyle` 定义了但没有任何使用点，列表与弹窗实际显示的是 WPF 经典滚动条（两侧箭头 + 立体滑块）。改为隐式样式（纵向/横向两套模板 + 8→12px 悬停展开），列表、下拉浮层、弹窗正文、等宽报告区共用一份；缩窗到 640 高度实测滑块渲染正常。
 5. **回车键默认触发主按钮**：`--version` 弹窗上按回车会去"打开日志目录"（弹一个资源管理器窗口），遗留事务弹窗上按回车会直接执行"回滚"这种破坏性操作。改为默认按钮显式声明：只有"是/否"二选一把回车绑到主按钮，其余默认回车=关闭。
 6. **绑定路径静默失效没有诊断**：WinUI 版有 `DebugSettings.BindingFailed`，WPF 的等价物（`PresentationTraceSources`）实测必须在 app.config 声明才真正生效——构造期设 `Switch.Level=All` + 挂 listener 收不到任何事件——而单文件承诺禁止 exe.config。替代方案：新增 `tools/check-bindings.py`，静态解析 XAML 里全部 72 处 `{Binding}` 路径并与 C# 属性表逐段对照（含 `Columns.NameWidth` 多级路径与 DataTemplate 上下文切换），并已接入 `build.cmd wpf` 第一步：路径写错在打包前就报错。
+7. **悬停遮罩把整行内容盖没**（审计后用户实测发现）：`FolderRowItemStyle` 容器模板里悬停遮罩 `Border` 声明在 `ContentPresenter` **之后**——WPF 后声明者画在上层——而 `RowHoverBrush` 是不透明色，悬停时整行内容被遮住，行变成一条空灰色带（截图上像两行之间多出一个空槽）。修法：删掉容器层的遮罩，悬停视觉只保留 `ItemTemplate` 里层级正确的那层（状态底色之上、内容之下）；容器模板只留替掉 WPF 默认选中底这一职责。回归脚本 `out/hover_test_wpf.py`：真实移鼠标到行上再 PrintWindow，像素断言悬停色带存在且行内容可见。
 
 另有一处**记录但不修**的共性问题：主窗口的两条水平分隔线（行 2 / 行 5）在两版里都不可见——`RowDefinition Height="1"` 里放一个上边距 16 的 Border，可用高度算出来是负数，整行塌成 0。WinUI 版同样如此（对照两版截图的像素均有且仅有表头线），修它需要改两版布局且 WinUI 侧无法在本机验证，暂不动。
 
