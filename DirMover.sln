@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -7,6 +7,10 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DirMover.App", "src\DirMover.App\DirMover.App.csproj", "{2F1C6F21-4F2A-4C71-9C39-1A0B9D1E6A02}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DirMover.Core.Tests", "tests\DirMover.Core.Tests\DirMover.Core.Tests.csproj", "{2F1C6F21-4F2A-4C71-9C39-1A0B9D1E6A03}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{F6696BB8-575D-4643-B804-273D75F8248F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DirMover.Wpf", "src\DirMover.Wpf\DirMover.Wpf.csproj", "{E8F051EE-0B8F-4716-BFBD-F8963FFA18D2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -26,11 +30,18 @@ Global
 		{2F1C6F21-4F2A-4C71-9C39-1A0B9D1E6A03}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2F1C6F21-4F2A-4C71-9C39-1A0B9D1E6A03}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2F1C6F21-4F2A-4C71-9C39-1A0B9D1E6A03}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E8F051EE-0B8F-4716-BFBD-F8963FFA18D2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E8F051EE-0B8F-4716-BFBD-F8963FFA18D2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E8F051EE-0B8F-4716-BFBD-F8963FFA18D2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E8F051EE-0B8F-4716-BFBD-F8963FFA18D2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7A3E5C10-9B42-4E88-8E36-2D5C0B4A9F10}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E8F051EE-0B8F-4716-BFBD-F8963FFA18D2} = {F6696BB8-575D-4643-B804-273D75F8248F}
 	EndGlobalSection
 EndGlobal

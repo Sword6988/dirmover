@@ -1,8 +1,10 @@
-# DirMover（WinUI 3 + C# 重写版）
+# DirMover（C# 重写版：WinUI 3 + WPF 双外壳）
 
 把 Windows 的 7 个用户文件夹（桌面 / 文档 / 下载 / 图片 / 音乐 / 视频 / 保存的游戏）从系统盘迁到其它盘，并同步注册表让系统认新位置。
 
-本仓库是 [Sword6988/dirmover](https://github.com/Sword6988/dirmover)（Python + tkinter，v3.0.1，MIT）的 **WinUI 3 + C# 全面重写**。重写目标是**行为对等**，不是界面相似：同样的判定顺序、同样的拒绝条件、同样的失败文案、同样的"校验通过才删源"。
+本仓库是 [Sword6988/dirmover](https://github.com/Sword6988/dirmover)（Python + tkinter，v3.0.1，MIT）的 **C# 全面重写**。重写目标是**行为对等**，不是界面相似：同样的判定顺序、同样的拒绝条件、同样的失败文案、同样的"校验通过才删源"。
+
+同一套引擎、同一套视图模型，两个界面外壳：**WinUI 3**（`build.cmd portable`，全自包含便携包）与 **WPF / .NET Framework 4.8**（`build.cmd wpf`，单文件 exe）。见「一个引擎，两个外壳」。
 
 原始项目源码留在 `repo-src/` 供对照，研究结论见 `docs/00-research-brief.md`。
 
@@ -31,9 +33,12 @@ build.cmd build       :: 编译 Core + App
 build.cmd test        :: 跑全量单元测试
 build.cmd publish     :: 发布到 publish\（全自包含 .NET + WinUI，含框架 resources.pri）
 build.cmd portable    :: 打便携包到 dist\（可运行目录 + zip，即 Release 附件）
+build.cmd wpf         :: 打 WPF/.NET FW 4.8 单文件包到 dist\（一个 exe + zip）
 ```
 
 **便携版（交付形态）**：`build.cmd portable` 产出一份**免安装**包——`dist\DirMover-<版本>-portable-win-x64\` 与同名 `.zip`。解压到任意位置（含 U 盘）双击 `DirMover.App.exe` 即可运行：不需要 .NET 运行时，不需要 Windows App Runtime，不写用户配置（目标盘与勾选是纯内存态）；程序目录可写时日志与备份落在同目录 `logs\`/`backups\`（便携模式），只读位置则回落 `%LOCALAPPDATA%\DirMover`。包内附 `README-Portable.txt` 使用说明。**单文件版本已废弃**——它每次启动把原生 dll 自解压到 `%TEMP%`，与"便携"正好相反。
+
+**WPF 单文件版（兼容形态）**：`build.cmd wpf` 产出 `dist\DirMover-<版本>-wpf-net48\DirMover.exe` 与同名 `.zip`——**一个 exe**（Costura 把 Core 与依赖织入，无 exe.config）。面向"有 .NET Framework 4.8 运行时（Win10 1809+ 自带）但没有 Windows App Runtime"的机器。引擎与视图模型与 WinUI 版是**同一份源码**（`DirMover.Core` 多目标 net8/net48，ViewModel 链接编译），两版行为一致由编译器保证；界面层是 WPF 重绘，视觉与 WinUI 版同源令牌。构建只需 .NET 8 SDK（引用程序集由 `Microsoft.NETFramework.ReferenceAssemblies` 包提供，目标机不需要任何预装）。
 
 直接调 `dotnet` 时（**本代包 `Microsoft.WindowsAppSDK 1.8.260921001` + `BuildTools 10.0.26100.4654` 实测**）：`build` **零额外属性**即可 0 警告 / 0 错误；`publish` 必须带 **`--self-contained`**，否则产出的是 .NET 框架依赖产物，启动是**假活**（`title=[DirMover.App.exe] wsMB=27.4 threads=8` —— apphost 的 .NET 缺失框，不是程序起来了）：
 
@@ -61,9 +66,11 @@ DirMover.App.exe --version    版本与参数说明
 
 ```
 DirMover.sln
-build.cmd                     构建/测试/发布/便携打包四命令 + SDK 探测（ASCII-only + CRLF，cmd.exe 代码页限制）
+build.cmd                     构建/测试/发布/便携/WPF 五命令 + SDK 探测（ASCII-only + CRLF，cmd.exe 代码页限制）
 src/
-  DirMover.Core/              业务与安全判定，零第三方依赖、零 UI 依赖（18 文件 / 8277 行）
+  DirMover.Core/              业务与安全判定，零第三方依赖、零 UI 依赖（21 文件 / 9115 行）
+    Compat/                     net48 兼容层（见「一个引擎，两个外壳」）：Compat.cs 跨目标统一出口、
+                                Net48Shims.cs 命名空间遮蔽（ThrowIfNull / HashCode）、Net48Polyfills.cs 语言特性垫片
     Catalog.cs                  7 项目录真源、注册表子键与 GUID、空间余量、禁区根（按 SystemDrive 现算）
     RunConfig.cs                运行配置（纯内存态），目标路径合成
     UiText.cs                   文案出口（详见「已知偏差」）
@@ -89,12 +96,46 @@ src/
     Views/TableColumnLayout.cs  列宽布局（40 ms 防抖 + 高水位 + 每次返回新 GridLength）
     Controls/RowStateConverters 7 种行状态 → 画刷（零颜色字面量，全部走 ThemeResource）
     Theme/Tokens.xaml           颜色与间距令牌（唯一允许出现色值的地方）
+  DirMover.Wpf/               WPF / .NET FW 4.8 单文件界面（8 个 .cs / 1610 行 + 5 个 .xaml / 1089 行）
+    App.xaml(.cs)               宿主：单实例、CLI 与退出码、全局异常兜底、ContentRendered 收尾
+    MainWindow.xaml(.cs)        7 行布局 1:1 重绘；FormattedText 量列宽；Closing 先取消再等待
+    Compat/WinUiThreadShim.cs   在 Microsoft.UI.Dispatching 下用 WPF Dispatcher 实现 DispatcherQueue
+    ViewModels/                 链接编译自 DirMover.App（同一份 MainViewModel，零改动）
+    Views/TableColumnLayout.cs  列宽布局（与 WinUI 版同一算法，仅 GridLength 换类型）
+    Controls/RowStateConverters 7 种行状态 → 画刷（资源键与 WinUI 版逐项同源）
+    Dialogs/                    自绘无边框弹窗 + WpfDialogService（14 类弹窗，SizeToContent 自适应）
+    Theme/                      Tokens.xaml 浅色档全量、Styles.xaml 用 ControlTemplate.Triggers 重做交互态
 tests/
-  DirMover.Core.Tests/        16 文件 / 4742 行 / 259 条（xunit 2.9.2）
+  DirMover.Core.Tests/        16 文件 / 5072 行 / 268 条（xunit 2.9.2，net8 侧）
 docs/                         研究简报、PRD、架构、验收清单、类图、时序图
 ```
 
-三个工程，不设 `DirMover.Interop`：P/Invoke 属于 Core 的 `Interop/`，因为它只服务于 Core 的判定，单独成包只会让调用点分散。
+四个工程，不设 `DirMover.Interop`：P/Invoke 属于 Core 的 `Interop/`，因为它只服务于 Core 的判定，单独成包只会让调用点分散。`DirMover.App` 与 `DirMover.Wpf` 是同一引擎的两个外壳，彼此不引用、互不感知。
+
+---
+
+## 一个引擎，两个外壳（WinUI 3 / WPF net48）
+
+这个工具会删源目录，所以**两版之间不允许出现"行为差异"**。而"两版行为一致"如果靠人工同步，迟早会漏。这里的做法是把它变成**编译期约束**：
+
+| 层 | WinUI 3 版 | WPF 版 | 共用方式 |
+|---|---|---|---|
+| 引擎 `DirMover.Core` | `net8.0-windows` | `net48` | **同一份源码，多目标编译** |
+| 视图模型 `ViewModels/` | 编译 | **链接编译**（`<Compile Include="..\DirMover.App\ViewModels\*.cs" Link="..."/>`） | 同一份源码，零复制 |
+| 界面层 | XAML + WinUI 控件 | XAML + WPF 控件 | 各自重绘，视觉令牌同源 |
+
+视图模型这层是关键的：`MainViewModel`（1372 行）里有全部状态机、命令可用性、进度映射、关窗收尾。它能被 WPF 直接编译，靠的是它**只依赖 UI 框架两处**——`Microsoft.UI.Dispatching.DispatcherQueue` 和 `TableColumnLayout`。前者在 `Compat/WinUiThreadShim.cs` 里用 WPF `Dispatcher` / `DispatcherTimer` 提供了**同命名空间的同形实现**，后者在 WPF 工程里按同一算法重写（只把 `GridLength` 换了类型）。于是那个 1372 行的文件改一个字，两版同时生效。
+
+**net48 兼容层为什么不散成 `#if`**：`Compat.cs` 是跨目标统一出口，`#if` 只出现在这一个文件里。理由不是"好看"，是**可证伪**——"哪 40 处 API 在 net48 上不存在"这件事，看一个文件就够了；散到 9 个调用点之后，下次谁再加一处 `Environment.ProcessId` 要靠编译器撞墙才发现。
+
+两个细节值得记下来，因为都不是"顺手能想到"的：
+
+- **`ArgumentNullException.ThrowIfNull` / `HashCode.Combine` 是命名空间遮蔽，不是扩展方法**。在 `DirMover.Core` 命名空间里声明同名类型（含 `CallerArgumentExpression` 参数），调用点 `ArgumentNullException.ThrowIfNull(x)` 一个字都不用改——因为 C# 名称查找优先取**更内层命名空间**里的类型而不是 `System` 里的。这把"~20 处调用点"的改动量变成了 0。
+- **重解析点没走 `LinkTarget` / `ResolveLinkTarget`**（net48 没有），而是用 `CreateFileW(FILE_FLAG_OPEN_REPARSE_POINT)` + `DeviceIoControl(FSCTL_GET_REPARSE_POINT)` 手工解析 `REPARSE_DATA_BUFFER`，剥掉 `\??\` 前缀。这不是造轮子炫技：复制阶段要**重建**源里的链接（包括悬空链接），"读不到目标就跳过"会让符号链接静默变成空目录，而 7 维校验里的"链接齐备"那维正好会因此失败——宁可写 80 行 interop，也不要一个会误判的环境。
+
+**单文件的承诺是可验证的**，不是靠 `PublishSingleFile` 那几个开关：`build.cmd wpf` 在 publish 之后会遍历输出目录，**除 `DirMover.exe` 外多出任何一个文件就 `goto :fail`**。这条守卫存在的理由是踩过：MSBuild 默认会生成 `DirMover.exe.config`（绑定重定向 + `supportedRuntime`），一旦出现，"一个 exe"就成了"exe + 配置"两件。关掉 `AutoGenerateBindingRedirects` / `GenerateBindingRedirectsOutputType` / `GenerateSupportedRuntime` 三个开关才能干净——代价是放弃自动绑定重定向，而这个代价可以用实测消掉：Costura 织入的程序集由它自己的 `AssemblyResolve` **按简单名**解析、忽略版本，`System.Text.Json` 全链路在无 config 下跑通过（probe 见 `out/probe-json`，输出 `OK name=测试 count=3`）。
+
+代价如实写在这里：WPF 版是**界面层重写**（8 个 `.cs` / 1610 行 + 5 个 `.xaml` / 1089 行），不是"改个 target 就完事"。WinUI 3 只跑 .NET 6+ 且依赖 Windows App Runtime，与"一张 exe 丢进任何 Win10 机器"的运行时约束互斥，只能各建宿主。
 
 ---
 
@@ -154,11 +195,29 @@ docs/                         研究简报、PRD、架构、验收清单、类�
 ## 验证状况
 
 ```
-dotnet test tests\DirMover.Core.Tests   →  259 通过 / 0 失败 / 0 跳过
-连续三次全量：259 / 259 / 259（运行前后全仓 34 个 .cs 的 md5 一致，确认三次跑的是同一份代码）
+dotnet test tests\DirMover.Core.Tests   →  268 通过 / 0 失败 / 0 跳过（11 s）
 ```
 
+基线演进：236（初版）→ 259（红线补测轮）→ **268**（全仓审计修复轮 +9，明细见 `docs/04-redline-coverage.md`）。数字只用于比对，**不要把 `Skipped` 计入通过**。Core 现为 `net8.0-windows;net48` 双目标，但**测试只在 net8 侧跑一遍**——这是有意的：net48 分支不新增业务逻辑，只做 API 形态适配，它的正确性由"WPF 版能编译 + 能跑通完整迁移"来验，而不是靠把 268 条用例再跑一遍。
+
 > 以上数字全部来自 **Core 层**。界面层的启动验证见「已知偏差 4」——**已通过**。卡了两轮的根因是**发布配置缺陷**（自包含产物没随包带框架 `resources.pri`），不是本项目代码，也**不是"本机不支持自包含"**（上一版这样读，是错的）。
+
+**WPF 单文件版实测（2026-11-14，本机）**：
+
+```
+dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,002,496 B   ← 目录内只有它（无 exe.config、无 pdb）
+dist\DirMover-3.0.1-wpf-net48.zip              595,204 B
+exe SHA-256  c1a83d5b916f6b843b1008c3a6266af3df567f7c5410deb648430e1978c9fb8e
+```
+
+`Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
+
+从 `dist` 里**直接跑那个 exe** 截的图（不是从 `bin\` 跑的调试产物）：`docs/ui-redesign-screenshots/wpf-dist-main.png`（964×721，主窗口：表格卡片、状态列着色、空态、按钮组与 WinUI 版逐项对照一致）与 `wpf-dist-dialog.png`（562×338，`--version` 弹窗）。`--scan` / `--dry-run` / 退出码 0·2·3·4 与 WinUI 版同文案同口径。
+
+两个只在这一版出现的坑，记下来避免复踩：
+
+- **`Window.Loaded` 在 `Show()` 之后订阅不会触发**。WinUI 版是 `Loaded` 里挂首次扫描，WPF 版照抄后 `--version` 弹窗永不出现（日志停在"已挂 Loaded"）。改用 `ContentRendered`，并在代码里留了注释说明语义差异。
+- **无边框自绘弹窗会先按最小尺寸量一遍**。首版弹窗宽到 1440 px、等宽报告区还居中折行。修法是 `SizeToContent="WidthAndHeight"` + 显式给 `BodyScroll.Width`/`MaxHeight`，等宽块用只读 `TextBox`（`TextBlock` 在 WPF 里不支持选中）设 `TextWrapping.NoWrap` + `TextAlignment.Left`，横向滚动条自己承担溢出。
 
 12 条数据安全红线：**10 条强覆盖 / 2 条弱覆盖 / 0 条无覆盖**。
 

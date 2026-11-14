@@ -1,0 +1,29 @@
+<Application x:Class="DirMover.Wpf.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:DirMover.Wpf.Controls">
+    <!--
+      没有 StartupUri：主窗口由 App.OnStartup 里手工创建（要先算落点、建日志、接视图模型，
+      失败时还要按退出码 3 收场），StartupUri 会在这些之前就把窗口建出来。
+    -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Theme/Tokens.xaml" />
+                <ResourceDictionary Source="Theme/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!--
+              转换器放在应用级：行模板是 DataTemplate，模板内的 {StaticResource} 只在
+              「模板自身资源 → Application.Resources」这条链上解析，放页面级会在运行期抛异常。
+            -->
+            <controls:RowStateToBackgroundConverter x:Key="RowStateToBackground" />
+            <controls:RowStateToForegroundConverter x:Key="RowStateToForeground" />
+            <controls:RowStateToStatusForegroundConverter x:Key="RowStateToStatusForeground" />
+            <controls:RowStateToOpacityConverter x:Key="RowStateToOpacity" />
+            <controls:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <controls:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+            <controls:InverseBoolConverter x:Key="InverseBool" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

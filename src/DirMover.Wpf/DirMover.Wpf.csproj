@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DirMover.Wpf —— 单文件版（C# + WPF / .NET Framework 4.8）。
+
+    为什么单独起一个工程而不是把 WinUI 项目改目标：WinUI 3 只跑在 .NET 6+ 且需要
+    Windows App Runtime；本版的存在意义正是"一张 exe 丢进任何 Win10 机器就能跑"，
+    两者运行时约束互斥，只能各建宿主。
+
+    共用关系：引擎（DirMover.Core，多目标 net48）与视图模型（链接编译 App 工程的三个
+    ViewModel 源文件）都来自同一份源码，界面层才是本工程自己的。
+    这样"两版行为一致"由编译器保证，而不是靠人工同步。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DirMover</AssemblyName>
+    <RootNamespace>DirMover.Wpf</RootNamespace>
+    <ApplicationIcon>..\DirMover.App\Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      不生成 exe.config：它会让"单文件"变成"exe + 配置"两件。
+      代价是放弃 MSBuild 自动生成的程序集绑定重定向（子依赖版本对齐）。
+      实测依据（out/probe-json）：Costura 织入的依赖由它自己的 AssemblyResolve 按"简单名"解析，
+      请求 Unsafe 4.0.4.1 时直接给出织入的 6.0.0.0，不经版本重定向；
+      System.Text.Json 的序列化/反序列化全链路在无 config 下通过。
+    -->
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>false</GenerateBindingRedirectsOutputType>
+    <!-- 连 <startup><supportedRuntime> 也不生成：exe.config 一旦出现，"单文件"就有了第二个文件 -->
+    <GenerateSupportedRuntime>false</GenerateSupportedRuntime>
+    <PlatformTarget>x64</PlatformTarget>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 本机没有装 .NET Framework 4.8 目标包（只有运行时），靠这个包提供引用程序集 -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+    <!-- 单文件：构建期把 Core / System.Text.Json 及其依赖织进 exe，输出目录只剩一个 exe -->
+    <PackageReference Include="Costura.Fody" Version="5.7.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DirMover.Core\DirMover.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    视图模型直接用 WinUI 工程的源文件（链接编译，不复制）。
+    它们对 UI 框架的依赖只有两处：Microsoft.UI.Dispatching.DispatcherQueue 与
+    DirMover.App.Views.TableColumnLayout —— 前者由 Compat/WinUiThreadShim.cs 提供同形实现，
+    后者在本工程有 WPF 版。改一处，两版同时生效。
+  -->
+  <ItemGroup>
+    <Compile Include="..\DirMover.App\ViewModels\ObservableBase.cs" Link="ViewModels\ObservableBase.cs" />
+    <Compile Include="..\DirMover.App\ViewModels\FolderRowViewModel.cs" Link="ViewModels\FolderRowViewModel.cs" />
+    <Compile Include="..\DirMover.App\ViewModels\MainViewModel.cs" Link="ViewModels\MainViewModel.cs" />
+  </ItemGroup>
+
+</Project>

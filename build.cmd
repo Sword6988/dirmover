@@ -8,6 +8,7 @@ rem    build.cmd test       run Core unit tests
 rem    build.cmd publish    publish self-contained win-x64 output to publish\
 rem    build.cmd portable   build the portable package into dist\ (folder + zip,
 rem                         ready to attach to a GitHub release)
+rem    build.cmd wpf        build the WPF/.NET FW 4.8 single-exe package into dist\
 rem
 rem  publish clears its output directory before publishing (and portable rebuilds
 rem  its staged folder from scratch), so the produced file list contains only
@@ -51,6 +52,7 @@ if /i "%~1"=="build"   goto :do_build
 if /i "%~1"=="test"    goto :do_test
 if /i "%~1"=="publish" goto :do_publish
 if /i "%~1"=="portable" goto :do_portable
+if /i "%~1"=="wpf" goto :do_wpf
 goto :usage
 
 rem ---------------------------------------------------------------- env probe
@@ -209,6 +211,73 @@ echo [ERROR] Could not clear "%STAGE%".
 echo         Most likely DirMover.App.exe is still running from that folder.
 echo         Close it (check Task Manager) and run this command again.
 exit /b 1
+
+rem ---------------------------------------------------------------- wpf
+rem WPF/.NET Framework 4.8 single-exe package: one DirMover.exe, nothing else.
+rem Costura weaves DirMover.Core + System.Text.Json into the exe at build time;
+rem binding-redirect generation is OFF (see DirMover.Wpf.csproj) so no exe.config
+rem is produced - a second file would break the "single file" promise.
+rem
+rem Output:
+rem   dist\DirMover-<ver>-wpf-net48\DirMover.exe   the single file
+rem   dist\DirMover-<ver>-wpf-net48.zip            the exe zipped (top-level folder)
+:do_wpf
+call :check_dotnet
+if errorlevel 1 exit /b 1
+
+call :read_version
+if errorlevel 1 goto :fail
+
+set "STAGE_NAME=DirMover-%VER%-wpf-net48"
+set "STAGE=%ROOT%dist\%STAGE_NAME%"
+set "ZIP=%ROOT%dist\%STAGE_NAME%.zip"
+
+if not exist "%ROOT%dist" mkdir "%ROOT%dist"
+if exist "%STAGE%" rd /s /q "%STAGE%"
+if exist "%STAGE%" goto :stage_locked
+if exist "%ZIP%" del /f /q "%ZIP%"
+
+echo Publishing WPF single-exe output to "%STAGE%" ...
+"%DOTNET%" publish "src\DirMover.Wpf\DirMover.Wpf.csproj" -c Release --nologo -o "%STAGE%"
+if errorlevel 1 (
+    echo [FAILED] WPF publish failed.
+    goto :fail
+)
+
+rem Only the exe ships: pdb is a debug artifact, and anything else appearing
+rem here means the build quietly stopped being single-file - fail loudly.
+if not exist "%STAGE%\DirMover.exe" (
+    echo [FAILED] DirMover.exe missing from the publish output.
+    goto :fail
+)
+del /f /q "%STAGE%\*.pdb" 2>nul
+for /f %%a in ('dir /b "%STAGE%" ^| findstr /v /i "DirMover.exe"') do (
+    echo [FAILED] Unexpected extra file in single-exe package: %%a
+    goto :fail
+)
+
+echo Zipping ...
+set "SYSTAR=%SystemRoot%\System32\tar.exe"
+if not exist "%SYSTAR%" goto :wpf_zip_ps
+"%SYSTAR%" -a -c -f "%ZIP%" -C "%ROOT%dist" "%STAGE_NAME%"
+if errorlevel 1 goto :wpf_zip_ps
+goto :wpf_zip_done
+
+:wpf_zip_ps
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '%STAGE%' -DestinationPath '%ZIP%' -CompressionLevel Optimal -Force"
+if errorlevel 1 (
+    echo [FAILED] Could not create the wpf zip.
+    goto :fail
+)
+
+:wpf_zip_done
+echo.
+echo [OK] Folder  : dist\%STAGE_NAME%\
+echo [OK] Package : dist\%STAGE_NAME%.zip
+for %%f in ("%ZIP%") do echo [OK] Size    : %%~zf bytes
+echo [OK] SHA-256 : printed below (paste it into the release notes)
+powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '%ZIP%').Hash.ToLower()"
+goto :done
 
 rem ---------------------------------------------------------------- version
 rem Read the single source of truth for the version (Catalog.AppVersion).

@@ -1,0 +1,116 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!--
+      Tokens.xaml（WPF 版）—— 设计令牌唯一真源。
+
+      与 WinUI 版 Theme/Tokens.xaml 的键名、取值逐项一致，差异只有一处：
+      WPF 没有 ThemeDictionaries，无法按系统主题切字典，而本工具界面**只按浅色校准**
+      （WinUI 版同样 RequestedTheme="Light" 锁定浅色），故这里只保留浅色档。
+      深色档的取值仍留在 WinUI 版文件里，将来若要跟进系统主题，本文件需改为
+      "两套字典 + 运行期换 ResourceDictionary"，键名不用动。
+    -->
+
+    <!-- ============================================================ 颜色（浅色档） -->
+    <SolidColorBrush x:Key="PageBackgroundBrush" Color="#F5F7F8" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="CardStrokeBrush" Color="#E6EAED" />
+    <SolidColorBrush x:Key="RowAltBrush" Color="#F7F9FA" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1B1E22" />
+    <SolidColorBrush x:Key="TextDisabledBrush" Color="#74787D" />
+    <SolidColorBrush x:Key="PendingRowBrush" Color="#E8F1FA" />
+    <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DCF0F1" />
+    <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#E3F2E4" />
+    <SolidColorBrush x:Key="DangerSubtleBrush" Color="#FBE7E9" />
+    <SolidColorBrush x:Key="DangerTextBrush" Color="#A4262C" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#E3E5E8" />
+    <SolidColorBrush x:Key="MutedTextBrush" Color="#62666C" />
+    <SolidColorBrush x:Key="WarningTextBrush" Color="#9A5B00" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#0B6B76" />
+    <SolidColorBrush x:Key="SuccessTextBrush" Color="#176B31" />
+    <SolidColorBrush x:Key="TableHeaderTextBrush" Color="#70767E" />
+
+    <!-- 强调四档：正常 / 悬停 / 按下 / 禁用 -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#0E7C86" />
+    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#21848D" />
+    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#0B5F67" />
+    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#660E7C86" />
+    <SolidColorBrush x:Key="OnAccentTextBrush" Color="#FFFFFF" />
+
+    <!-- 危险（淡红填充式）按钮两档 -->
+    <SolidColorBrush x:Key="DangerButtonHoverBrush" Color="#F6D5D8" />
+    <SolidColorBrush x:Key="DangerButtonPressedBrush" Color="#F0C3C7" />
+
+    <SolidColorBrush x:Key="WarningSubtleBrush" Color="#FBF0DC" />
+    <SolidColorBrush x:Key="RowHoverBrush" Color="#EEF2F4" />
+    <SolidColorBrush x:Key="HeaderLineBrush" Color="#DEE1E4" />
+    <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#E1F5EE" />
+    <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0F6E56" />
+
+    <!-- 输入控件（下拉框 / 勾选框）的描边与填充 -->
+    <SolidColorBrush x:Key="ControlStrokeBrush" Color="#D7DBDF" />
+    <SolidColorBrush x:Key="ControlStrokeHoverBrush" Color="#BFC6CB" />
+    <SolidColorBrush x:Key="ControlFillBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ControlFillHoverBrush" Color="#F7F9FA" />
+
+    <!-- ============================================================ 间距（DIP） -->
+    <sys:Double x:Key="SpaceXs">4</sys:Double>
+    <sys:Double x:Key="SpaceS">8</sys:Double>
+    <sys:Double x:Key="SpaceM">12</sys:Double>
+    <sys:Double x:Key="SpaceL">16</sys:Double>
+    <sys:Double x:Key="SpaceXl">24</sys:Double>
+
+    <!-- ============================================================ 字号 -->
+    <sys:Double x:Key="FontSizeCaption">12</sys:Double>
+    <sys:Double x:Key="FontSizeBody">14</sys:Double>
+    <sys:Double x:Key="FontSizeStrong">15</sys:Double>
+    <sys:Double x:Key="FontSizeTitle">20</sys:Double>
+
+    <!-- ============================================================ 结构性尺寸 -->
+    <sys:Double x:Key="RowHeight">42</sys:Double>
+    <sys:Double x:Key="HeaderRowHeight">36</sys:Double>
+    <sys:Double x:Key="ProgressWidth">180</sys:Double>
+    <sys:Double x:Key="EmptyStateBadgeSize">42</sys:Double>
+    <sys:Double x:Key="EmptyStateIconSize">18</sys:Double>
+    <sys:Double x:Key="CheckColumnWidth">40</sys:Double>
+    <sys:Double x:Key="ProgressBarMinHeight">4</sys:Double>
+    <sys:Double x:Key="DestinationComboMinWidth">280</sys:Double>
+    <sys:Double x:Key="EmptyStateSpacing">12</sys:Double>
+    <sys:Double x:Key="DirMoverDisabledOpacity">0.70</sys:Double>
+    <sys:Double x:Key="DefaultWidth">980</sys:Double>
+    <sys:Double x:Key="DefaultHeight">760</sys:Double>
+    <sys:Double x:Key="MinWindowWidth">780</sys:Double>
+    <sys:Double x:Key="MinWindowHeight">640</sys:Double>
+
+    <!-- ============================================================ 弹窗排版 -->
+    <sys:Double x:Key="DialogLineHeight">22</sys:Double>
+    <sys:Double x:Key="DialogParagraphSpacing">10</sys:Double>
+    <sys:Double x:Key="DialogContentMaxWidth">480</sys:Double>
+    <sys:Double x:Key="DialogContentMaxHeight">440</sys:Double>
+    <sys:Double x:Key="DialogMonoFontSize">13</sys:Double>
+    <sys:Double x:Key="DialogMonoLineHeight">20</sys:Double>
+    <CornerRadius x:Key="DialogMonoCornerRadius">6</CornerRadius>
+    <Thickness x:Key="DialogMonoPadding">12,10,12,10</Thickness>
+
+    <!-- ============================================================ 圆角 -->
+    <CornerRadius x:Key="CardCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="ButtonCornerRadius">6</CornerRadius>
+    <CornerRadius x:Key="EmptyStateBadgeCornerRadius">21</CornerRadius>
+
+    <!-- ============================================================ 常用 Thickness -->
+    <Thickness x:Key="PagePadding">24,20,24,16</Thickness>
+    <Thickness x:Key="StackGap">0,8,0,0</Thickness>
+    <Thickness x:Key="DividerGap">0,16,0,0</Thickness>
+    <Thickness x:Key="DangerGap">24,0,0,0</Thickness>
+    <Thickness x:Key="SectionGap">16,0,0,0</Thickness>
+    <Thickness x:Key="TableCardGap">0,12,0,12</Thickness>
+    <Thickness x:Key="TableCardPadding">14,12,14,12</Thickness>
+    <Thickness x:Key="CardBorderThickness">1</Thickness>
+    <Thickness x:Key="EmptyStateGap">0,36,0,16</Thickness>
+
+    <!-- 字体族：与 WinUI 版同一选择（中文用微软雅黑，西文 Segoe UI 由系统回退接管） -->
+    <FontFamily x:Key="AppFontFamily">Microsoft YaHei UI, Segoe UI</FontFamily>
+    <FontFamily x:Key="MonoFontFamily">Consolas, Cascadia Mono, Microsoft YaHei UI</FontFamily>
+
+</ResourceDictionary>
