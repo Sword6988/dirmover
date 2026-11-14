@@ -240,6 +240,8 @@ exe SHA-256  e8d5686733dcf22b7e077d33b15276e203be71d0b0d837e518d93d14f39b8cdb
 
 另有一处**记录但不修**的共性问题：主窗口的两条水平分隔线（行 2 / 行 5）在两版里都不可见——`RowDefinition Height="1"` 里放一个上边距 16 的 Border，可用高度算出来是负数，整行塌成 0。WinUI 版同样如此（对照两版截图的像素均有且仅有表头线），修它需要改两版布局且 WinUI 侧无法在本机验证，暂不动。
 
+**启动诊断仪表（2026-11-14，用户问"启动能更快吗"）**：启动路径全程加了 Stopwatch 里程碑，首帧后在日志里落一行 `启动分解: 进程→App构造 / App.xaml解析 / MainWindow.xaml解析 / 盘枚举 / VM构造 / Attach / Show / Show→首帧`。实测本机（热启动）：合计 ~2.9s，其中 App.xaml 解析 435ms、MainWindow.xaml 解析 640ms、`Window.Show()` 1225ms、首帧 60ms，业务代码（盘枚举 6ms + VM 构造 41ms）几乎为零——**瓶颈全部是 WPF 框架的每次运行期 JIT**。根因：本机 `.NET Framework NGen 原生映像缓存整体缺失`（`NativeImages_v4.0.30319_64` 目录不存在，mscorsvw 服务也缺失），每个 .NET 4.8 程序每次启动都在重新 JIT 整个框架；重建缓存需以管理员运行 `ngen install`（本机实测被系统拒绝 E_ACCESSDENIED，属 OS 镜像层面限制）。正常 Windows 上缓存齐全，启动远快于此；该仪表留给以后定位启动回归。
+
 **提权级别的刻意差异**：WinUI 版清单声明 `requireAdministrator`（双击即弹 UAC）；WPF 单文件版声明 `asInvoker`——不提权也能完成绝大多数操作（写 HKCU、搬用户目录都不需要管理员），界面顶部会显示提权提示条，真正需要时用"以管理员身份重启"按钮按需提权。这样 `--scan` / `--version` 等只读路径也不会被 UAC 打断。两版行为差异见各自清单里的注释。
 
 12 条数据安全红线：**10 条强覆盖 / 2 条弱覆盖 / 0 条无覆盖**。

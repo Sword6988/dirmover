@@ -25,10 +25,18 @@ public partial class MainWindow : Window
     private MainViewModel? _vm;
     private bool _allowClose;
 
+    /// <summary>MainWindow.xaml 解析耗时（启动分解日志消费）；构造完成即有值。</summary>
+    internal static long CtorInitMs { get; private set; }
+
+    /// <summary>首次列宽测量耗时（Show 期间首帧布局触发）；启动分解日志消费。</summary>
+    internal static long ColumnMeasureMs { get; private set; }
+
     /// <summary>构造窗口。数据绑定在 <see cref="Attach"/> 里接。</summary>
     public MainWindow()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         InitializeComponent();
+        CtorInitMs = sw.ElapsedMilliseconds;
 
         // 标题由系统标题栏承担，正文不重复标题。
         Title = UiText.WindowTitle;
@@ -54,8 +62,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         _vm.Columns.AvailableWidth = e.NewSize.Width;
         RecomputeColumnNeeds();
+        if (ColumnMeasureMs == 0)
+        {
+            ColumnMeasureMs = sw.ElapsedMilliseconds;
+        }
     }
 
     /// <summary>

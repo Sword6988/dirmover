@@ -49,6 +49,25 @@ public partial class App : Application
     private bool _cliStarted;
     private int _unhandledCount;
 
+    // 启动耗时分解（用户反馈"启动慢"后加的仪表）：Stopwatch 从 App 构造起跑，
+    // 各里程碑在 ContentRendered 时一次性落一行 INFO，不逐段刷日志。
+    private readonly System.Diagnostics.Stopwatch _boot = System.Diagnostics.Stopwatch.StartNew();
+    private readonly double _processStartToAppCtorMs = ComputeProcessStartDeltaMs();
+    private long _tOnStartup, _tWindowCtor, _tShown;
+
+    /// <summary>进程启动到 App 构造的毫秒差（近似 CLR 初始化 + 主程序集加载的成本）。</summary>
+    private static double ComputeProcessStartDeltaMs()
+    {
+        try
+        {
+            return (DateTime.Now - System.Diagnostics.Process.GetCurrentProcess().StartTime).TotalMilliseconds;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
     /// <summary>构造应用实例，加载资源字典。</summary>
     /// <remarks>
     /// WPF 侧<b>没有</b>运行期绑定失败诊断：WinUI 的 <c>DebugSettings.BindingFailed</c> 在 WPF
@@ -59,13 +78,31 @@ public partial class App : Application
     /// </remarks>
     public App()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         InitializeComponent();
+        AppCtorInitMs = sw.ElapsedMilliseconds;
     }
+
+    /// <summary>App.xaml（合并资源字典）解析耗时；由启动分解日志消费。</summary>
+    internal long AppCtorInitMs { get; private set; }
+
+    /// <summary>磁盘枚举耗时；由启动分解日志消费。</summary>
+    internal long DriveEnumMs { get; private set; }
+
+    /// <summary>MainViewModel 构造耗时；由启动分解日志消费。</summary>
+    internal long ViewModelCtorMs { get; private set; }
+
+    /// <summary>Attach（DataContext 赋值）耗时；由启动分解日志消费。</summary>
+    internal long AttachMs { get; private set; }
+
+    /// <summary>Show() 调用耗时；由启动分解日志消费。</summary>
+    internal long ShowMs { get; private set; }
 
     /// <summary>启动编排。</summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        _tOnStartup = _boot.ElapsedMilliseconds;
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -97,8 +134,11 @@ public partial class App : Application
         try
         {
             _window = new MainWindow();
+            _tWindowCtor = _boot.ElapsedMilliseconds;
 
+            long tDrives0 = _boot.ElapsedMilliseconds;
             DriveVolume[] drives = DriveInventory.ListFixedNonSystem().ToArray();
+            long tDrives1 = _boot.ElapsedMilliseconds;
             if (drives.Length == 0)
             {
                 _log.Warn("未检测到可用的非系统固定磁盘");
@@ -108,12 +148,23 @@ public partial class App : Application
             var engine = new TransferEngine(store, _paths.BackupDirectory, _args.DryRun, _log);
             var dialogs = new WpfDialogService(_window, _paths, _log);
             var viewModel = new MainViewModel(engine, _paths, _log, dialogs, drives);
+            long tViewModel1 = _boot.ElapsedMilliseconds;
+            DriveEnumMs = tDrives1 - tDrives0;
+            ViewModelCtorMs = tViewModel1 - tDrives1;
 
             viewModel.ReleaseSingleInstanceGate = ReleaseSingleInstance;
             viewModel.ReacquireSingleInstanceGate = ReacquireSingleInstance;
 
+            long tAttach0 = _boot.ElapsedMilliseconds;
             _window.Attach(viewModel);
+            long tAttach1 = _boot.ElapsedMilliseconds;
             _window.Show();
+            _tShown = _boot.ElapsedMilliseconds;
+            AttachMs = tAttach1 - tAttach0;
+            ShowMs = _tShown - tAttach1;
+
+            // 启动分解只在首帧后落一次日志；独立订阅，CLI / 试运行路径也覆盖。
+            _window.ContentRendered += (_, _) => LogBootBreakdown();
 
             // 单实例判定放在窗口显示之后：重复启动要能"弹一句再走"，而弹窗需要 Owner。
             _guard = SingleInstanceGuard.Acquire(_paths, _log, out bool alreadyRunning);
@@ -274,6 +325,30 @@ public partial class App : Application
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>把启动里程碑落成一行日志：各段毫秒数，定位启动慢的环节。</summary>
+    private void LogBootBreakdown()
+    {
+        try
+        {
+            long now = _boot.ElapsedMilliseconds;
+            _log.Info(
+                "启动分解: " +
+                $"进程→App构造={_processStartToAppCtorMs:F0}ms " +
+                $"App构造→OnStartup={_tOnStartup}ms " +
+                $"(App.xaml解析={AppCtorInitMs}ms) " +
+                $"OnStartup→窗口构造={_tWindowCtor - _tOnStartup}ms " +
+                $"(MainWindow.xaml解析={DirMover.Wpf.MainWindow.CtorInitMs}ms) " +
+                $"窗口→Show={_tShown - _tWindowCtor}ms " +
+                $"(盘枚举={DriveEnumMs}ms VM构造={ViewModelCtorMs}ms Attach={AttachMs}ms Show={ShowMs}ms 列测量={DirMover.Wpf.MainWindow.ColumnMeasureMs}ms) " +
+                $"Show→首帧={now - _tShown}ms " +
+                $"合计(App构造起)={now}ms");
+        }
+        catch
+        {
+            // 仪表自身故障不报警：启动路径不受影响。
+        }
     }
 
     /// <summary>未处理异常：第一次告知并继续，第二次以退出码 4 收场。</summary>
