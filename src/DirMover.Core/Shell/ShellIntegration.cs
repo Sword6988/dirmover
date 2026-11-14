@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using DirMover.Core.Diagnostics;
 using DirMover.Core.Interop;
@@ -69,7 +69,7 @@ internal sealed class DefaultProcessExecutor : IProcessExecutor
 
             foreach (string argument in arguments)
             {
-                startInfo.ArgumentList.Add(argument);
+                Compat.AddArgument(startInfo, argument);
             }
 
             process = Process.Start(startInfo);
@@ -87,7 +87,7 @@ internal sealed class DefaultProcessExecutor : IProcessExecutor
             {
                 try
                 {
-                    process.Kill(entireProcessTree: true);
+                    Compat.KillTree(process);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
@@ -193,7 +193,7 @@ internal sealed class DefaultProcessExecutor : IProcessExecutor
             {
                 foreach (string argument in arguments)
                 {
-                    startInfo.ArgumentList.Add(argument);
+                    Compat.AddArgument(startInfo, argument);
                 }
             }
 
@@ -250,7 +250,7 @@ public static class ShellIntegration
     /// <param name="arguments">命令行参数（原样传给新实例）。</param>
     public static ShellOpResult RelaunchAsAdmin(string arguments)
     {
-        string? exePath = Environment.ProcessPath;
+        string? exePath = Compat.ProcessPath();
         if (string.IsNullOrWhiteSpace(exePath))
         {
             return new ShellOpResult(false, UiText.ElevationFailed(0));
@@ -331,7 +331,7 @@ public static class ShellIntegration
     /// </remarks>
     public static async Task<ShellOpResult> RestartExplorerAsync(CancellationToken ct = default)
     {
-        if (!OperatingSystem.IsWindows())
+        if (!Compat.IsWindows())
         {
             return new ShellOpResult(false, UiText.ShellRestartManual);
         }
@@ -437,7 +437,7 @@ public static class ShellIntegration
     /// </summary>
     public static Task<ShellOpResult> BroadcastEnvironmentChangeAsync()
     {
-        if (!OperatingSystem.IsWindows())
+        if (!Compat.IsWindows())
         {
             return Task.FromResult(new ShellOpResult(false, UiText.ShellRestartManual));
         }
@@ -555,7 +555,7 @@ public sealed class SingleInstanceGuard : IDisposable
             }
 
             int ownerPid = ReadPid(pidFile);
-            bool ownerAlive = IsLiveDirMoverInstance(ownerPid) && ownerPid != Environment.ProcessId;
+            bool ownerAlive = IsLiveDirMoverInstance(ownerPid) && ownerPid != Compat.ProcessId();
 
             Mutex? mutex = null;
             bool ownsMutex = false;
@@ -694,7 +694,7 @@ public sealed class SingleInstanceGuard : IDisposable
             }
 
             // PID 会被复用：镜像名不是 DirMover 就说明那个 PID 已经不属于我们。
-            return process.ProcessName.Contains(ImageName, StringComparison.OrdinalIgnoreCase);
+            return Compat.Contains(process.ProcessName, ImageName, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is ArgumentException
             or InvalidOperationException
@@ -714,7 +714,7 @@ public sealed class SingleInstanceGuard : IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(pidFile, Environment.ProcessId.ToString());
+            File.WriteAllText(pidFile, Compat.ProcessId().ToString());
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {

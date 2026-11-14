@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using DirMover.Core.Diagnostics;
@@ -390,7 +390,7 @@ public sealed class IntentJournal : IIntentJournal
                 catch (IOException)
                 {
                     // 少数文件系统（部分网络盘）不支持 Replace：退回覆盖式 Move。
-                    File.Move(_tempPath, _path, overwrite: true);
+                    Compat.MoveOrReplace(_tempPath, _path);
                 }
             }
             else

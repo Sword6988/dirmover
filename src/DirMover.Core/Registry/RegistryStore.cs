@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -109,7 +109,7 @@ public sealed class RegistryStore
         {
             string s => s,
             null => string.Empty,
-            byte[] bytes => Convert.ToHexString(bytes),
+            byte[] bytes => Compat.HexUpper(bytes),
             string[] parts => string.Join(";", parts),
             IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
             _ => found.Value.Data.ToString() ?? string.Empty,
@@ -319,7 +319,7 @@ public sealed class RegistryStore
             File.WriteAllText(temp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
             // .tmp → 原子替换：崩溃时绝不会留下一个"看起来完整、其实半截"的快照文件。
-            File.Move(temp, path, overwrite: true);
+            Compat.MoveOrReplace(temp, path);
             return path;
         }
         catch (Exception ex) when (ex is IOException

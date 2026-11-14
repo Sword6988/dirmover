@@ -1,4 +1,4 @@
-using DirMover.App.Views;
+﻿using DirMover.App.Views;
 using DirMover.Core;
 using DirMover.Core.Engine;
 
@@ -249,7 +249,10 @@ public sealed class FolderRowViewModel : ObservableObject
     /// </remarks>
     public void Apply(PlanItem item, bool resetOutcome)
     {
-        ArgumentNullException.ThrowIfNull(item);
+        if (item is null)
+        {
+            throw new ArgumentNullException(nameof(item));
+        }
 
         Current = item.Current ?? string.Empty;
         Target = item.Target ?? string.Empty;
@@ -279,7 +282,10 @@ public sealed class FolderRowViewModel : ObservableObject
     /// </remarks>
     public void ApplyOutcome(ItemOutcome outcome)
     {
-        ArgumentNullException.ThrowIfNull(outcome);
+        if (outcome is null)
+        {
+            throw new ArgumentNullException(nameof(outcome));
+        }
 
         // 失败原因必须逐项可见（PRD §6.4），所以有 Message 就优先展示它，
         // 只给一句"失败"等于把用户推向日志文件。

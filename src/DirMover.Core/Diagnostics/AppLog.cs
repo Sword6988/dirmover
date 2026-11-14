@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace DirMover.Core.Diagnostics;
 
@@ -158,7 +158,7 @@ public sealed class DefaultAppPaths : IAppPaths
             Directory.CreateDirectory(logs);
             Directory.CreateDirectory(backups);
 
-            string probe = Path.Combine(logs, $".write-probe-{Environment.ProcessId}");
+            string probe = Path.Combine(logs, $".write-probe-{Compat.ProcessId()}");
             File.WriteAllText(probe, "probe");
             File.Delete(probe);
             return true;

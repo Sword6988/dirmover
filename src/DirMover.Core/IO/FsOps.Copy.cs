@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using DirMover.Core.Engine;
 using DirMover.Core.Interop;
 
@@ -342,7 +342,7 @@ public static partial class FsOps
         }
 
         // 最后一个文件之后一定再报一次，避免"卡在 n-1/N"的界面。
-        ReportProgress(progress, done, total, bytesDone, rels.Count > 0 ? rels[^1] : string.Empty);
+        ReportProgress(progress, done, total, bytesDone, rels.Count > 0 ? rels[rels.Count - 1] : string.Empty);
         return result;
     }
 
@@ -539,8 +539,8 @@ public static partial class FsOps
             }
 
             // 原子落盘：overwrite:false —— 目标若在竞态中被他人创建，这里失败而不是覆盖。
-            File.Move(PathTools.ToExtended(tempPath), PathTools.ToExtended(targetPath), overwrite: false);
-            return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            Compat.MoveNoOverwrite(PathTools.ToExtended(tempPath), PathTools.ToExtended(targetPath));
+            return Compat.HexUpper(hash.GetHashAndReset()).ToLowerInvariant();
         }
         catch
         {
@@ -556,7 +556,7 @@ public static partial class FsOps
 
     private static void MarkSparse(FileStream stream)
     {
-        if (!OperatingSystem.IsWindows())
+        if (!Compat.IsWindows())
         {
             return;
         }
@@ -608,7 +608,7 @@ public static partial class FsOps
         bool isDirectory = Directory.Exists(PathTools.ToExtended(source));
         FileSystemInfo info = isDirectory ? new DirectoryInfo(source) : new FileInfo(source);
 
-        string? rawTarget = info.LinkTarget;
+        string? rawTarget = Compat.GetLinkTarget(info);
         if (string.IsNullOrEmpty(rawTarget))
         {
             throw new IOException("源条目已不是链接");
@@ -635,11 +635,11 @@ public static partial class FsOps
 
         if (isDirectory)
         {
-            Directory.CreateSymbolicLink(PathTools.ToExtended(targetLinkPath), resolved);
+            Compat.CreateSymbolicLink(PathTools.ToExtended(targetLinkPath), resolved, isDirectory: true);
         }
         else
         {
-            File.CreateSymbolicLink(PathTools.ToExtended(targetLinkPath), resolved);
+            Compat.CreateSymbolicLink(PathTools.ToExtended(targetLinkPath), resolved, isDirectory: false);
         }
     }
 }

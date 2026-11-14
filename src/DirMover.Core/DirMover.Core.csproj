@@ -15,7 +15,12 @@
     "系统盘不是 C:"（审计 A4：写死 C: 会让整道禁区闸门在改过盘符的机器上 fail-open）。
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!--
+      多目标：net8.0-windows 给 WinUI 版，net48 给 WPF 单文件版。
+      两套界面共用同一份引擎代码，红线守卫与单测都只针对 net8 跑，
+      net48 分支仅要求"同样的输入给同样的结果"，不做第二次逻辑复制。
+    -->
+    <TargetFrameworks>net8.0-windows;net48</TargetFrameworks>
     <OutputType>Library</OutputType>
     <RootNamespace>DirMover.Core</RootNamespace>
     <AssemblyName>DirMover.Core</AssemblyName>
@@ -28,6 +33,16 @@
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
+
+  <!--
+    net48 没有 System.Text.Json（它随 .NET Core 3.0 才进 BCL）。这里只给 net48 补包，
+    net8 目标保持零 PackageReference——红线守卫脚本按 net8 的依赖面判定。
+    选 8.0.x 是因为它是最后一个仍然支持 net462+ 的主线版本。
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using DirMover.App.Views;
 using DirMover.Core;
@@ -392,7 +392,7 @@ public sealed class MainViewModel : ObservableObject
     public double ProgressValue
     {
         get => _progressValue;
-        private set => SetProperty(ref _progressValue, Math.Clamp(value, 0d, 100d));
+        private set => SetProperty(ref _progressValue, value < 0d ? 0d : (value > 100d ? 100d : value));
     }
 
     /// <summary>是否试运行模式（状态栏徽标）。</summary>

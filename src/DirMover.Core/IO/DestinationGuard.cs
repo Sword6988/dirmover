@@ -1,4 +1,4 @@
-namespace DirMover.Core.IO;
+﻿namespace DirMover.Core.IO;
 
 /// <summary>源位置的风险分类。</summary>
 public enum SourceRisk
@@ -428,7 +428,7 @@ public static class DestinationGuard
 
         try
         {
-            return Path.IsPathFullyQualified(path);
+            return Compat.IsPathFullyQualified(path);
         }
         catch (ArgumentException)
         {
@@ -481,7 +481,7 @@ public static class DestinationGuard
                 return segment;
             }
 
-            char last = segment[^1];
+            char last = segment[segment.Length - 1];
             if (last == ' ' || last == '.')
             {
                 return segment;

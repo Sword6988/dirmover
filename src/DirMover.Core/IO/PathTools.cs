@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using DirMover.Core.Interop;
 
@@ -453,7 +453,7 @@ public static class PathTools
             FileSystemInfo info = isDirectory
                 ? new DirectoryInfo(extended)
                 : new FileInfo(extended);
-            return info.LinkTarget is not null;
+            return Compat.GetLinkTarget(info) is not null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -563,11 +563,11 @@ public static class PathTools
                 FileSystemInfo info = isDirectory
                     ? new DirectoryInfo(extended)
                     : new FileInfo(extended);
-                FileSystemInfo? target = info.ResolveLinkTarget(returnFinalTarget: true);
+                string? target = Compat.ResolveFinalLinkTarget(info);
                 if (target is not null)
                 {
                     // 回写到"干净路径"：内部约定一切比较与拼接都用不带前缀的形态。
-                    current = StripExtendedPrefix(target.FullName);
+                    current = StripExtendedPrefix(target);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)

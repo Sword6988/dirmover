@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using DirMover.Core.Interop;
 
 namespace DirMover.Core.IO;
@@ -248,7 +248,7 @@ public static partial class FsOps
             System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
 
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        return Compat.HexUpper(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
     /// <summary>条目是否重解析点（属性位或 <c>LinkTarget</c> 任一命中即算）。</summary>
@@ -262,7 +262,7 @@ public static partial class FsOps
 
         try
         {
-            return info.LinkTarget is not null;
+            return Compat.GetLinkTarget(info) is not null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {

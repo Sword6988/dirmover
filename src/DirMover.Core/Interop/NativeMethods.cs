@@ -2,6 +2,10 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 
+// net48 的 System.Runtime.InteropServices 里也有一个 FILETIME（与 ComTypes 的同名结构布局一致），
+// 两个 using 同时在场就会 CS0104 歧义。显式取 ComTypes 那个，net8 下同样存在，语义不变。
+using FILETIME = System.Runtime.InteropServices.ComTypes.FILETIME;
+
 namespace DirMover.Core.Interop;
 
 /// <summary>
@@ -52,6 +56,35 @@ internal static class NativeMethods
 
     /// <summary><c>SW_SHOWNORMAL</c>。</summary>
     internal const int SwShowNormal = 1;
+
+    /// <summary><c>FSCTL_GET_REPARSE_POINT</c>：按句柄读出重解析点数据（net48 用它替代 <c>FileSystemInfo.LinkTarget</c>）。</summary>
+    internal const uint FsctlGetReparsePoint = 0x000900A8;
+
+    /// <summary><c>FILE_FLAG_BACKUP_SEMANTICS</c>：能打开目录句柄。</summary>
+    internal const uint FileFlagBackupSemantics = 0x02000000;
+
+    /// <summary><c>FILE_FLAG_OPEN_REPARSE_POINT</c>：打开链接本身而不是它的目标。</summary>
+    internal const uint FileFlagOpenReparsePoint = 0x00200000;
+
+    /// <summary><c>SYMBOLIC_LINK_FLAG_DIRECTORY</c>：建目录链接。</summary>
+    internal const uint SymbolicLinkFlagDirectory = 0x1;
+
+    /// <summary><c>SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE</c>：未提权也能建链接（Win10 1703+）。</summary>
+    internal const uint SymbolicLinkFlagAllowUnprivilegedCreate = 0x2;
+
+    /// <summary>重解析点标签：符号链接。</summary>
+    internal const uint IOReparseTagSymlink = 0xA000000C;
+
+    /// <summary>重解析点标签：目录联接（junction）。</summary>
+    internal const uint IOReparseTagMountPoint = 0xA0000003;
+
+    /// <summary>创建符号链接（net48 没有 <c>File.CreateSymbolicLink</c>）。</summary>
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CreateSymbolicLinkW(
+        string symlinkFileName,
+        string targetFileName,
+        uint flags);
 
     // ------------------------------------------------------------------ 磁盘与路径
 
@@ -105,7 +138,7 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool CloseHandle(IntPtr handle);
 
-    /// <summary>设备控制（本工具只用于 <c>FSCTL_SET_SPARSE</c>）。</summary>
+    /// <summary>设备控制（本工具只用于 <c>FSCTL_SET_SPARSE</c> / <c>FSCTL_GET_REPARSE_POINT</c>）。</summary>
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DeviceIoControl(
