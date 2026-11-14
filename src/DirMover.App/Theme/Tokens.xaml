@@ -36,22 +36,23 @@
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F4F6" />
             <SolidColorBrush x:Key="TextDisabledBrush" Color="#8E9298" />
             <SolidColorBrush x:Key="PendingRowBrush" Color="#1B3A55" />
-            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#16414A" />
+            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#16344E" />
             <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#1B3A24" />
             <SolidColorBrush x:Key="DangerSubtleBrush" Color="#421C22" />
             <SolidColorBrush x:Key="DangerTextBrush" Color="#FF9BA5" />
             <SolidColorBrush x:Key="DividerBrush" Color="#363A3E" />
             <SolidColorBrush x:Key="MutedTextBrush" Color="#A6ABB2" />
             <SolidColorBrush x:Key="WarningTextBrush" Color="#F2C661" />
-            <SolidColorBrush x:Key="AccentTextBrush" Color="#5BD1D8" />
+            <SolidColorBrush x:Key="AccentTextBrush" Color="#7CC0F2" />
             <!-- 状态列"完成"态文字色（2026-11-14 新增：状态列文字按状态着色，取代已删除的圆点通道） -->
             <SolidColorBrush x:Key="SuccessTextBrush" Color="#85D991" />
 
             <!-- 新增：表头专用前景（比 MutedTextBrush 再淡半档，浅色档的对应值为 #70767E） -->
             <SolidColorBrush x:Key="TableHeaderTextBrush" Color="#959CA3" />
 
-            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用） -->
-            <SolidColorBrush x:Key="AccentBrush" Color="#63D6DC" />
+            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用）。强调色族取自应用图标主体蓝色渐变
+                 （#1870C0→#4090E0），浅色档用图标原色，深色档整体提亮同色相。 -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#6FB2E8" />
 
             <!-- 新增：危险按钮的两档悬停/按下底色（淡红填充式按钮的深色档） -->
             <SolidColorBrush x:Key="DangerButtonHoverBrush" Color="#52262C" />
@@ -67,8 +68,8 @@
             <SolidColorBrush x:Key="HeaderLineBrush" Color="#41464B" />
 
             <!-- 新增：表格空态徽章（圆形底 + 勾号前景，深色档取 SuccessSubtleBrush 同族的暗绿） -->
-            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#1E3B2F" />
-            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#85D991" />
+            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#1A3552" />
+            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#85C4F0" />
 
             <!--
               新增：系统强调画刷重定向（自 App.xaml 的 ThemeDictionaries 迁入，值不变）。
@@ -77,16 +78,16 @@
               先声明不生效），而"合并字典"里的 ThemeDictionaries（本文件）经
               {ThemeResource} 查找有效——危险按钮的 DangerSubtleBrush 即同机制实证。
               合并字典按"后进先出"解析，Tokens 在 XamlControlsResources 之后合入，
-              故这里的值压过系统默认强调色。主按钮/勾选勾色随之变品牌青碧。
+              故这里的值压过系统默认强调色。主按钮/勾选勾色随之变品牌图标蓝。
               Secondary（悬停）/Tertiary（按下）在浅色档刻意比 Default 各偏亮/偏暗半档，
-              让 hover 与 pressed 有可感知反馈；Disabled 用 40% 透明度青碧。
+              让 hover 与 pressed 有可感知反馈；Disabled 用 40% 透明度蓝。
             -->
-            <Color x:Key="SystemAccentColor">#63D6DC</Color>
-            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#63D6DC" />
-            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#7BDDE3" />
-            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#4FBCC3" />
-            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#667BDDE3" />
-            <SolidColorBrush x:Key="OnAccentTextBrush" Color="#0C3A3E" />
+            <Color x:Key="SystemAccentColor">#6FB2E8</Color>
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#6FB2E8" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#8AC3EF" />
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#5298D4" />
+            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#668AC3EF" />
+            <SolidColorBrush x:Key="OnAccentTextBrush" Color="#0C2B48" />
         </ResourceDictionary>
 
         <!-- 浅色（基准主题） -->
@@ -108,14 +109,14 @@
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1B1E22" />
             <SolidColorBrush x:Key="TextDisabledBrush" Color="#74787D" />
             <SolidColorBrush x:Key="PendingRowBrush" Color="#E8F1FA" />
-            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DCF0F1" />
+            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DDEBF9" />
             <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#E3F2E4" />
             <SolidColorBrush x:Key="DangerSubtleBrush" Color="#FBE7E9" />
             <SolidColorBrush x:Key="DangerTextBrush" Color="#A4262C" />
             <SolidColorBrush x:Key="DividerBrush" Color="#E3E5E8" />
             <SolidColorBrush x:Key="MutedTextBrush" Color="#62666C" />
             <SolidColorBrush x:Key="WarningTextBrush" Color="#9A5B00" />
-            <SolidColorBrush x:Key="AccentTextBrush" Color="#0B6B76" />
+            <SolidColorBrush x:Key="AccentTextBrush" Color="#0B5394" />
             <!-- 状态列"完成"态文字色：#176B31 在完成态浅绿底 #E3F2E4 上 ≈5.7:1（≥4.5:1 达标） -->
             <SolidColorBrush x:Key="SuccessTextBrush" Color="#176B31" />
 
@@ -127,8 +128,8 @@
             -->
             <SolidColorBrush x:Key="TableHeaderTextBrush" Color="#70767E" />
 
-            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用） -->
-            <SolidColorBrush x:Key="AccentBrush" Color="#0E7C86" />
+            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用）。取应用图标主体的 #1870C0。 -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#1870C0" />
 
             <!-- 新增：危险按钮的两档悬停/按下底色（淡红填充式按钮的浅色档） -->
             <SolidColorBrush x:Key="DangerButtonHoverBrush" Color="#F6D5D8" />
@@ -147,13 +148,13 @@
             <!-- 新增：表头下方的 1px 分隔线（#D6DADD→#DEE1E4：比主分隔线浅半档，避免次要线抢主结构线的权重） -->
             <SolidColorBrush x:Key="HeaderLineBrush" Color="#DEE1E4" />
 
-            <!-- 新增：表格空态徽章（圆形底 + 勾号前景，浅色档用淡青绿填充配深绿勾号） -->
-            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#E1F5EE" />
-            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0F6E56" />
+            <!-- 新增：表格空态徽章（圆形底 + 勾号前景，浅色档用淡蓝填充配深蓝勾号） -->
+            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#DFEEFB" />
+            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0B5394" />
 
             <!--
               新增：系统强调画刷重定向（自 App.xaml 的 ThemeDictionaries 迁入，同上注释）。
-              浅色档取品牌青碧 #0E7C86：Default（正常）/Secondary（悬停，偏亮半档）/
+              浅色档取品牌图标蓝 #1870C0：Default（正常）/Secondary（悬停，偏亮半档）/
               Tertiary（按下，偏暗两档）/Disabled（40% 透明度）四档。
               注意：AccentButtonStyle（位于 XamlControlsResources 内）的 Background 经实测
               不会消费这里的覆盖（其解析封闭在自身上下文里），故主按钮的正常态由
@@ -161,12 +162,12 @@
               本组令牌的消费方是 MainWindow 根级/实例级主题键覆盖（ButtonBackground* 与
               CheckBoxCheckBackgroundFill* 系列）与悬停/按下/禁用三态。
             -->
-            <Color x:Key="SystemAccentColor">#0E7C86</Color>
-            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#0E7C86" />
-            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#21848D" />
-            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#0B5F67" />
-            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#660E7C86" />
-            <!-- 新增：青碧填充上的文字色（主按钮文字，浅色档白字；深色档按钮为浅青碧故用深字） -->
+            <Color x:Key="SystemAccentColor">#1870C0</Color>
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#1870C0" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#3888D8" />
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#1068B8" />
+            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#661870C0" />
+            <!-- 新增：蓝填充上的文字色（主按钮文字，浅色档白字；深色档按钮为浅蓝故用深字） -->
             <SolidColorBrush x:Key="OnAccentTextBrush" Color="#FFFFFF" />
         </ResourceDictionary>
 

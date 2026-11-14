@@ -63,17 +63,17 @@
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1B1E22" />
             <SolidColorBrush x:Key="TextDisabledBrush" Color="#74787D" />
             <SolidColorBrush x:Key="PendingRowBrush" Color="#E8F1FA" />
-            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DCF0F1" />
+            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DDEBF9" />
             <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#E3F2E4" />
             <SolidColorBrush x:Key="DangerSubtleBrush" Color="#FBE7E9" />
             <SolidColorBrush x:Key="DangerTextBrush" Color="#A4262C" />
             <SolidColorBrush x:Key="DividerBrush" Color="#E3E5E8" />
             <SolidColorBrush x:Key="MutedTextBrush" Color="#62666C" />
             <SolidColorBrush x:Key="WarningTextBrush" Color="#9A5B00" />
-            <SolidColorBrush x:Key="AccentTextBrush" Color="#0B6B76" />
+            <SolidColorBrush x:Key="AccentTextBrush" Color="#0B5394" />
 
-            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用）与状态圆点用文字色 -->
-            <SolidColorBrush x:Key="AccentBrush" Color="#0E7C86" />
+            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用）与状态圆点用文字色。取应用图标主体的 #1870C0。 -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#1870C0" />
             <SolidColorBrush x:Key="PendingTextBrush" Color="#1E5E94" />
             <SolidColorBrush x:Key="SuccessTextBrush" Color="#176B31" />
 
@@ -90,9 +90,9 @@
             <!-- 新增：表头下方的 1px 分隔线（#D6DADD→#DEE1E4：比主分隔线浅半档，避免次要线抢主结构线的权重） -->
             <SolidColorBrush x:Key="HeaderLineBrush" Color="#DEE1E4" />
 
-            <!-- 新增：表格空态徽章（圆形底 + 勾号前景，浅色档用淡青绿填充配深绿勾号） -->
-            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#E1F5EE" />
-            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0F6E56" />
+            <!-- 新增：表格空态徽章（圆形底 + 勾号前景，浅色档用淡蓝填充配深蓝勾号） -->
+            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#DFEEFB" />
+            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0B5394" />
         </ResourceDictionary>
 
     </ResourceDictionary.ThemeDictionaries>

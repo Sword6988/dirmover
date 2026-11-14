@@ -209,8 +209,8 @@ dotnet test tests\DirMover.Core.Tests   →  268 通过 / 0 失败 / 0 跳过（
 
 ```
 dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,008,640 B   ← 目录内只有它（无 exe.config、无 pdb）
-dist\DirMover-3.0.1-wpf-net48.zip              597,376 B
-exe SHA-256  22e317bd96f88f017d95cde786825aa86b256381cbd94267e40600dd369606d4
+dist\DirMover-3.0.1-wpf-net48.zip              597,352 B
+exe SHA-256  e8d5686733dcf22b7e077d33b15276e203be71d0b0d837e518d93d14f39b8cdb
 ```
 
 `Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
@@ -225,7 +225,10 @@ exe SHA-256  22e317bd96f88f017d95cde786825aa86b256381cbd94267e40600dd369606d4
 
 **视觉对齐轮（2026-11-14）**：界面再向便携版靠了一档——ComboBox 整模板重绘（#FBFBFB 扁平底、4px 圆角、字形箭头、8px 圆角浮层与控件同宽）、勾选框 20px + 勾号弹出动画 + 按下 92% 微缩、键盘焦点环改成 Fluent 双线式、滚动条悬停 8→12px 展开、字体回退链改 `Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI`（Win11 数字与便携版同款，Win10 回落 Segoe UI）。**Mica 试过又撤了**：便携版本身没有 Mica（纯色浅灰底），而 WPF 端做系统 backdrop 需要 `DwmExtendFrameIntoClientArea(-1)` + 透明背景，实测会透出桌面其它窗口内容且文字有合成重影——偏离便携版观感，不做。这一轮全部改动合计 **+4.6 KB**（exe 0.96→0.96 MiB 级），对比图见 `docs/ui-redesign-screenshots/wpf-aligned-main.png` 与 `wpf-aligned-combo-open.png`。顺带修掉了只在 net48 目标暴露的一批可空性警告（net48 引用程序集缺 `NotNullWhen` 注解，`IsNullOrEmpty` 不收窄——判空改写成对两个目标都成立的显式形式，net8 行为不变，268 测全绿）。
 
+**强调色对齐图标（2026-11-14，用户反馈）**：应用图标主体是蓝色渐变（#1870C0→#4090E0），而界面强调色一直是青碧（#0E7C86 系）——"图标蓝、界面青"各唱各的。把两版（WinUI 便携版 + WPF 单文件版）的强调色族整体换成图标蓝：AccentBrush=#1870C0（图标原色）、悬停 #3888D8 / 按下 #1068B8（同取自图标渐变）、链接与状态文字 #0B5394（白底约 7.8:1）、弱底与空态徽章同族淡蓝；深色档整体提亮同色相（#6FB2E8 系）。**语义色不动**：成功=绿、危险=红、警告=黄的语义仍然保留（状态列"完成"仍是绿字）。改的只是 `Theme/Tokens.xaml` 一处真源（外加遗留未接线的 `App/Tokens.xaml` 同步），布局零改动。
+
 **全面审计轮（2026-11-14）**：对单文件版做了一轮逐文件走读 + 实机行为测试（CLI 退出码、单实例、关窗、缩窗滚动条），发现并修掉 6 处（第 7 条为审计后用户实测补充）：
+
 
 1. **CLI 跑完不退出**（最重要）：`--version` / `--help` / `--scan` / 未知参数在弹窗关闭后留下一个空主窗口，进程永远不结束——脚本调用 `DirMover.exe --version` 会一直挂着。修法：CLI 路径收尾时落退出码并关闭主窗口（`ExitAfterCli` + `CloseForCliExit`），实测四种参数各自以 0/0/2/0 退出。**这是与 WinUI 版的一处刻意分叉**：WinUI 版同样的路径仍需手动关主窗口，本轮只修了单文件版（WinUI 侧未经运行期验证，不动）。
 2. **清单缺 `longPathAware`**：WinUI 版清单一直有，net48 上这条比 .NET 8 更关键——.NET 8 会对超长路径自动补 `\\?\` 前缀，net48 不会，没有这条时 ≥260 字符的深目录复制/删除直接抛 `PathTooLongException`。已补。

@@ -64,7 +64,7 @@
               但模板态的 {ThemeResource} 查找会沿可视树向上走，根级同名覆盖即生效
               （与危险按钮实例级覆盖同一查找机制，零模板自绘）。
               四态取 Tokens 的强调四档：正常 / 悬停(Secondary) / 按下(Tertiary) / 禁用(Disabled)。
-              勾号前景不覆盖：默认 TextOnAccent 系为白色，压在青碧底上本就成立。
+              勾号前景不覆盖：默认 TextOnAccent 系为白色，压在蓝底上本就成立。
             -->
             <ResourceDictionary>
                 <ResourceDictionary.ThemeDictionaries>

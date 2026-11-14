@@ -20,22 +20,23 @@
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1B1E22" />
     <SolidColorBrush x:Key="TextDisabledBrush" Color="#74787D" />
     <SolidColorBrush x:Key="PendingRowBrush" Color="#E8F1FA" />
-    <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DCF0F1" />
+    <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DDEBF9" />
     <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#E3F2E4" />
     <SolidColorBrush x:Key="DangerSubtleBrush" Color="#FBE7E9" />
     <SolidColorBrush x:Key="DangerTextBrush" Color="#A4262C" />
     <SolidColorBrush x:Key="DividerBrush" Color="#E3E5E8" />
     <SolidColorBrush x:Key="MutedTextBrush" Color="#62666C" />
     <SolidColorBrush x:Key="WarningTextBrush" Color="#9A5B00" />
-    <SolidColorBrush x:Key="AccentTextBrush" Color="#0B6B76" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#0B5394" />
     <SolidColorBrush x:Key="SuccessTextBrush" Color="#176B31" />
     <SolidColorBrush x:Key="TableHeaderTextBrush" Color="#70767E" />
 
-    <!-- 强调四档：正常 / 悬停 / 按下 / 禁用 -->
-    <SolidColorBrush x:Key="AccentBrush" Color="#0E7C86" />
-    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#21848D" />
-    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#0B5F67" />
-    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#660E7C86" />
+    <!-- 强调四档：正常 / 悬停 / 按下 / 禁用。取自应用图标主体蓝色渐变（#1870C0→#4090E0），
+         与任务栏/标题栏图标同一色相家族，界面不再"图标蓝、界面青"各唱各的。 -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#1870C0" />
+    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#3888D8" />
+    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#1068B8" />
+    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#661870C0" />
     <SolidColorBrush x:Key="OnAccentTextBrush" Color="#FFFFFF" />
 
     <!-- 危险（淡红填充式）按钮两档 -->
@@ -45,8 +46,8 @@
     <SolidColorBrush x:Key="WarningSubtleBrush" Color="#FBF0DC" />
     <SolidColorBrush x:Key="RowHoverBrush" Color="#EEF2F4" />
     <SolidColorBrush x:Key="HeaderLineBrush" Color="#DEE1E4" />
-    <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#E1F5EE" />
-    <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0F6E56" />
+    <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#DFEEFB" />
+    <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0B5394" />
 
     <!-- 输入控件（下拉框 / 勾选框）的描边与填充 -->
     <SolidColorBrush x:Key="ControlStrokeBrush" Color="#D7DBDF" />
