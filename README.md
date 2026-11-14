@@ -205,19 +205,20 @@ dotnet test tests\DirMover.Core.Tests   →  268 通过 / 0 失败 / 0 跳过（
 **WPF 单文件版实测（2026-11-14，本机）**：
 
 ```
-dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,002,496 B   ← 目录内只有它（无 exe.config、无 pdb）
-dist\DirMover-3.0.1-wpf-net48.zip              595,204 B
-exe SHA-256  c1a83d5b916f6b843b1008c3a6266af3df567f7c5410deb648430e1978c9fb8e
+dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,001,984 B   ← 目录内只有它（无 exe.config、无 pdb）
+dist\DirMover-3.0.1-wpf-net48.zip              594,799 B
+exe SHA-256  9f18d75397c880185534fb2011dd2849ccc3e7bf6e961986c88b94f68ffab81f
 ```
 
 `Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
 
 从 `dist` 里**直接跑那个 exe** 截的图（不是从 `bin\` 跑的调试产物）：`docs/ui-redesign-screenshots/wpf-dist-main.png`（964×721，主窗口：表格卡片、状态列着色、空态、按钮组与 WinUI 版逐项对照一致）与 `wpf-dist-dialog.png`（562×338，`--version` 弹窗）。`--scan` / `--dry-run` / 退出码 0·2·3·4 与 WinUI 版同文案同口径。
 
-两个只在这一版出现的坑，记下来避免复踩：
+三个只在这一版出现的坑，记下来避免复踩：
 
 - **`Window.Loaded` 在 `Show()` 之后订阅不会触发**。WinUI 版是 `Loaded` 里挂首次扫描，WPF 版照抄后 `--version` 弹窗永不出现（日志停在"已挂 Loaded"）。改用 `ContentRendered`，并在代码里留了注释说明语义差异。
 - **无边框自绘弹窗会先按最小尺寸量一遍**。首版弹窗宽到 1440 px、等宽报告区还居中折行。修法是 `SizeToContent="WidthAndHeight"` + 显式给 `BodyScroll.Width`/`MaxHeight`，等宽块用只读 `TextBox`（`TextBlock` 在 WPF 里不支持选中）设 `TextWrapping.NoWrap` + `TextAlignment.Left`，横向滚动条自己承担溢出。
+- **`Closing` 管线里不能再调 `Close()`**。关窗收尾是"先 `e.Cancel = true`，再 `await RequestCloseAsync()`，然后 `Close()`"——但 `await` 的续体经 Dispatcher 恢复时，触发本次 Closing 的那次 Close 还没走完，此时 `Close()` 被 `VerifyNotClosing` 拒绝，抛 `InvalidOperationException` 并触发全局异常弹窗（`startup_error.txt` 有实测记录）。修法：最终关闭延到下一轮 Dispatcher（`CloseDeferred`），那是一次全新的 Close 调用，放行标志已置位。回归脚本 `out/close_test_wpf.py`：WM_CLOSE → 退出码 0、无错误日志。
 
 12 条数据安全红线：**10 条强覆盖 / 2 条弱覆盖 / 0 条无覆盖**。
 

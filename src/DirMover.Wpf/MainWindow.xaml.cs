@@ -188,8 +188,7 @@ public partial class MainWindow : Window
 
         if (_vm is null)
         {
-            _allowClose = true;
-            Close();
+            CloseDeferred();
             return;
         }
 
@@ -198,7 +197,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        CloseDeferred();
+    }
+
+    /// <summary>
+    /// 在 <see cref="Window.Closing"/> 管线之外补一次真正的 <see cref="Window.Close"/>。
+    /// </summary>
+    /// <remarks>
+    /// WPF 禁止在关闭过程中再调 Show/ShowDialog/Close（Window.VerifyNotClosing）。
+    /// <c>RequestCloseAsync</c> 的续体经 Dispatcher 恢复时，触发本次 Closing 的那次
+    /// Close 调用可能还没走完，此时直接 <c>Close()</c> 会抛
+    /// <c>InvalidOperationException</c>（2026-11-14 实测，日志 startup_error.txt）。
+    /// Cancel 已经生效，把最终关闭延到下一轮 Dispatcher 即可 —— 那是一次全新的
+    /// Close 调用，<c>_allowClose</c> 为 true，Closing 处理器直接放行。
+    /// </remarks>
+    private void CloseDeferred()
+    {
         _allowClose = true;
-        Close();
+        Dispatcher.BeginInvoke(new Action(Close));
     }
 }
