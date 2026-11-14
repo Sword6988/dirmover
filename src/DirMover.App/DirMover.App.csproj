@@ -1,0 +1,368 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DirMover.App —— WinUI 3 宿主（unpackaged）。
+    属性逐条取自架构文档 §2.1，不允许"顺手优化"：
+      * WindowsPackageType=None           不产出 .msix（本机也没有打包任务）
+      * WindowsAppSDKSelfContained=true   WinUI 运行时随应用走，目标机无需预装
+      * EnableMsixTooling=false           显式关掉 MSIX 工具链
+      * ApplicationIcon=Assets\app.ico    已是既有资源
+    锁 3 个包：WindowsAppSDK（SDK 本体）、SDK.BuildTools（提供 WinMD/PRI 工具）、
+    WindowsAppSDK.Runtime（只为拿包内 tools\MSIX 下的运行时 .msix，见文件末尾 FRAMEWORK PRI 一节）。
+
+    ⚠ 启动崩溃 0xC000027B 的真实根因（2026-11-12 实测，别再按旧结论去查 xbf / makepri）
+
+    症状：publish\DirMover.App.exe 启动即 EXITED 0xC000027B，
+    事件日志出错模块 Microsoft.ui.xaml.dll、异常代码 0xc000027b（STATUS_STOWED_EXCEPTION），
+    连 logs\ 目录都不会生成（失败发生在 App 构造 / InitializeComponent 阶段，FileLogger 尚未建立）。
+
+    根因不是"自包含坏了"、也不是缺 .xbf：**缺 WindowsAppRuntime 包里的那份框架 resources.pri**。
+    自包含模式下 WinUI 的框架资源索引要在构建时并入应用产物，而这一步属于 MRT 工具链
+    （-p:EnableCoreMrtTooling=false 为了绕开 MSB4062 已把它整个关掉）。
+    于是产物里有 Microsoft.UI.pri / Microsoft.UI.Xaml.Controls.pri / Microsoft.WindowsAppRuntime.pri，
+    唯独没有 resources.pri —— XAML 启动时解析不到框架资源，直接 stowed exception。
+
+    实测三种形态（同一份源码，同一台机器，只动一个变量）：
+      A. 自包含 + 产物里无 resources.pri                       → CRASH 0xC000027B
+      B. 自包含 + **补入框架 resources.pri**（1,351,648 B）      → ALIVE，窗口标题正确、57 线程 / 162 MB
+      C. 框架依赖（WindowsAppSDKSelfContained=false）           → ALIVE（框架资源由系统运行时提供）
+
+    结论：**保持自包含（A→B），用下面的 StageFrameworkPri 目标把框架 pri 补进产物。**
+    这样目标机既不需要 .NET 8 运行时，也不需要预装 Windows App Runtime —— 零前置依赖。
+    这不是"只放一个文件"的偏方：A 里的另外 3 个 pri 由自包含构建自己产出，缺的恰好是第 4 个。
+
+    "真的自包含"的判据（别只看进程活着）：启动后查进程模块来源，WinUI 8 个模块
+    （Microsoft.WindowsAppRuntime.dll / Microsoft.UI.Xaml.dll / Microsoft.UI.Xaml.Controls.dll /
+    Microsoft.UI.Windowing.Core.dll / Microsoft.UI.Composition.OSSupport.dll / Microsoft.UI.Input.dll /
+    Microsoft.UI.Windowing.dll / Microsoft.UI.dll）的路径必须全部落在产物目录下，
+    来自 C:\Program Files\WindowsApps\ 的个数必须是 0。实测 local=8 other=0。
+    注意模块可见集随采样时刻变化（t=7s 常见 3 个，长跑可见 8 个），报数时必须带采样时刻。
+
+    注意"用 makepri 自己生成"是错的路：makepri 只能索引**应用自身**资源，
+    本项目零 .resw，生成出来是 1,192 B 的空索引，放进目录照样 0xC000027B（D-11 那一轮就是这么被误导的）。
+    必须是运行时 MSIX 里那份 1,351,648 B 的**框架** pri。
+
+    ⚠ 包版本必须成对：WindowsAppSDK 1.8 要求 Microsoft.Windows.SDK.BuildTools >= 10.0.26100.4654
+    （否则还原直接 NU1605 报包降级）；而 Microsoft.WindowsAppSDK.Runtime 的版本**必须与
+    Microsoft.WindowsAppSDK 完全一致**（现在都是 1.8.260921001）。第三对不一致时还原不会报错
+    （它本来就是传递依赖），只会静悄悄取到**另一代**的 MSIX，pri 尺寸随之变化，
+    门禁阈值（1,300,000 B）与文档里的实测数字一起失真。改一个就要一起改。
+
+    ⚠ pri 数量随 SDK 代变化：本文的"4 个 pri"以 WindowsAppSDK 1.8.260921001 为准。
+    out\publish-selfcontained-old（更早一代产物）里只有 1 个 pri，且
+    Microsoft.UI.Xaml.Controls.pri 是 1,229,952 B（当前代 1,258,296 B）—— 换包版本必须重验这一项。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>DirMover.App</RootNamespace>
+    <AssemblyName>DirMover.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!--
+    单文件发布分支已移除（2026-11-14）。
+
+    原因不是"配置太麻烦"，而是形态本身与交付目标冲突：PublishSingleFile 会把原生 dll
+    并入 exe，并在**每次启动**时自解压到 %TEMP% 的随机目录。那正是便携包要避免的行为
+    （残留临时文件、杀软误报、无法整目录核对）。现行交付形态是 build.cmd portable
+    产出的"解压即用"目录 + zip，依赖全在包内、启动不自解压。
+
+    连带删除的东西（别以为可以悄悄恢复）：
+      * EnableMsixTooling / IncludeNativeLibrariesForSelfExtract /
+        IncludeAllContentForSelfExtract / WindowsAppSdkUndockedRegFreeWinRTInitialize
+        的覆盖分支；
+      * DefineConstants 里的 DIRMOVER_SINGLE_FILE 与 SingleFileInit.cs（只在单文件模式
+        有意义：给自解压目录设 MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY）；
+      * CopyXbfToPublish / VerifyFrameworkPriInPublish 上的 '$(PublishSingleFile)' 条件
+        —— 只剩一种形态后，门禁应当无条件生效，而不是有条件地"可能被跳过"。
+
+    为什么不保留"死分支"：一个永远不会为 true 的条件会在 review 时被当成有效路径，
+    掩盖"门禁其实没人验"的风险。少一个分支，就少一处可以骗过自己的地方。
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <!--
+      GeneratePathProperty 只是为了让下面能拿到 $(PkgMicrosoft_WindowsAppSDK_Runtime)，
+      即该包解包后的绝对路径。用它拼 .msix 路径，避免写死盘符或版本号。
+      这个包本来就是 WindowsAppSDK 的传递依赖，这里显式声明只为触发属性生成。
+    -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260921001" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DirMover.Core\DirMover.Core.csproj" />
+  </ItemGroup>
+
+  <!-- ============================================================ FRAMEWORK PRI -->
+
+  <!--
+    框架 pri 的位置与判定阈值。
+
+    _WinAppSdkPriArch：运行时 MSIX 按架构分目录（win10-x64 / win10-x86 / win10-arm64 / win10-arm64ec），
+    名称与 $(Platform) 不是一一对应，必须显式映射；未命中时回落到 win10-x64 并打一条 Message
+    （本项目 Platforms 只声明了 x64，回落分支正常情况不会走到）。
+
+    _FrameworkPriMinBytes：实测框架 pri 为 1,351,648 B，取 1,300,000 作下限（约 4% 余量，
+    容忍包版本微调）。**必须是这个量级**：应用自身的空 pri 是 1,192 B，用"文件存在"当判据会让它假绿。
+  -->
+  <PropertyGroup>
+    <_WinAppSdkPriArch Condition="'$(Platform)' == 'x64'">win10-x64</_WinAppSdkPriArch>
+    <_WinAppSdkPriArch Condition="'$(Platform)' == 'x86'">win10-x86</_WinAppSdkPriArch>
+    <_WinAppSdkPriArch Condition="'$(Platform)' == 'ARM64'">win10-arm64</_WinAppSdkPriArch>
+    <_WinAppSdkPriArch Condition="'$(Platform)' == 'arm64ec'">win10-arm64ec</_WinAppSdkPriArch>
+    <_WinAppSdkPriArch Condition="'$(_WinAppSdkPriArch)' == ''">win10-x64</_WinAppSdkPriArch>
+    <_WinAppSdkPriRuntimeMsixDir>$(PkgMicrosoft_WindowsAppSDK_Runtime)\tools\MSIX\$(_WinAppSdkPriArch)</_WinAppSdkPriRuntimeMsixDir>
+    <!--
+      pri 是**资源索引，与架构无关**：MSIX 里四个架构目录下的 resources.pri 是同一份内容，
+      所以上面的回落（未命中架构就取 win10-x64）本身不致命，不存在"架构错配"风险；
+      分架构目录只是为了各自取本架构那份、并顺带拿到同目录其它 payload。
+    -->
+    <_FrameworkPriMinBytes>1300000</_FrameworkPriMinBytes>
+  </PropertyGroup>
+
+  <!--
+    从 .msix（本质是 zip）里取单个条目。
+
+    为什么不用 makepri：见文件头（它产不出框架索引）。
+    为什么不用 tar / Expand-Archive：引入外部工具依赖，且出错时只有一行 stderr。
+    这里用 MSBuild 自带的 RoslynCodeTaskFactory 内联任务，纯 MSBuild、无外部工具、失败信息明确
+    （zip 里找不到条目会直接 LogError 并带上归档路径）。
+
+    调用方式：<DirMoverExtractZipEntry ArchivePath=".." EntryName="resources.pri" OutputDirectory="$(OutDir)" />
+  -->
+  <UsingTask
+    TaskName="DirMoverExtractZipEntry"
+    TaskFactory="RoslynCodeTaskFactory"
+    AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <ArchivePath ParameterType="System.String" Required="true" />
+      <EntryName ParameterType="System.String" Required="true" />
+      <OutputDirectory ParameterType="System.String" Required="true" />
+      <ExtractedPath ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.IO.Compression" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        // 注意：Fragment 体内不要写 return —— 任务工厂会在尾部补一句
+        // "return !Log.HasLoggedErrors;"，任何提前 return 都会让它变成不可达代码（CS0162 警告）。
+        // 失败统一走 LogError，由工厂那行收口。
+        if (!File.Exists(ArchivePath))
+        {
+            Log.LogError("找不到运行时 MSIX：" + ArchivePath + "（检查 Microsoft.WindowsAppSDK.Runtime 包是否已还原、_WinAppSdkPriArch 是否映射正确）");
+        }
+        else
+        {
+            Directory.CreateDirectory(OutputDirectory);
+            string destination = Path.Combine(OutputDirectory, "resources.pri");
+
+            using (ZipArchive archive = ZipFile.OpenRead(ArchivePath))
+            {
+                ZipArchiveEntry entry = archive.GetEntry(EntryName);
+                if (entry == null)
+                {
+                    Log.LogError("MSIX 内没有 " + EntryName + "：" + ArchivePath);
+                }
+                else
+                {
+                    entry.ExtractToFile(destination, true);
+                    ExtractedPath = destination;
+                    Log.LogMessage(MessageImportance.High,
+                        "DirMover: 框架 resources.pri 已取出（" + entry.Length + " B）→ " + destination);
+                }
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <!--
+    校验一份 .pri 是否"够大得像是框架那份"。
+
+    单独做成一个任务而不是写在 Condition 里：MSBuild 属性函数不允许
+    $([System.IO.FileInfo]::new(...).Length)（会报 MSB4185），而"存在 + 字节数下限"
+    这条判据要在两处复用（构建输出、发布目录），集中到一处才不会两处判据不一致。
+
+    阈值语义：1,192 B 是 makepri 生成的"应用自身空索引"，1,351,648 B 才是框架索引。
+    "存在"是弱断言，必须带下限，否则同名不同物的 pri 会让门禁假绿。
+  -->
+  <UsingTask
+    TaskName="DirMoverVerifyFrameworkPri"
+    TaskFactory="RoslynCodeTaskFactory"
+    AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <PriPath ParameterType="System.String" Required="true" />
+      <MinBytes ParameterType="System.Int64" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        // Fragment 体内不写 return：任务工厂会在尾部补 "return !Log.HasLoggedErrors;"，
+        // 提前 return 会让那行变成不可达代码（CS0162，会破"0 警告"）。
+        if (!File.Exists(PriPath))
+        {
+            Log.LogError("自包含产物缺框架 resources.pri（" + PriPath + "）：目标机启动会 0xC000027B。");
+        }
+        else
+        {
+            long length = new FileInfo(PriPath).Length;
+            if (length < MinBytes)
+            {
+                Log.LogError(PriPath + " 只有 " + length + " B，小于下限 " + MinBytes + " B —— 这是应用自身的空 pri，不是框架 pri（1,351,648 B）。目标机启动会 0xC000027B。");
+            }
+            else
+            {
+                Log.LogMessage(MessageImportance.High, "DirMover: 框架 resources.pri 校验通过（" + length + " B）→ " + PriPath);
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <!--
+    把框架 resources.pri 放进 $(OutDir)，使 bin 下的 Debug/Release 产物同样可运行（不只是 publish）。
+
+    ⚠ 顺序契约：本目标用 AfterTargets="Build"，而下面的 CopyXbfToPublish 从 $(OutDir) 取这份 pri。
+    这条依赖是**隐式**的 —— 靠的是 Publish 本身依赖 Build 这个固有顺序。
+    不要"为了稳妥"改成 BeforeTargets="Publish"：那会在某些入口（如 -t:Publish 与 -t:Build 混用，
+    或 no-incremental 全量构建）绕开 Build 时既不取 pri 也不报错，产出不可运行却构建成功。
+
+    ⚠ fail-closed：MSIX 找不到、条目不存在、解出来是 0 字节，都要让构建**失败**，不许降级成警告。
+    本轮踩的坑就是这个形态：缺一个文件、构建一路绿灯、运行时崩在 App 初始化，连 logs\ 都来不及建。
+
+    选 MSIX 文件时用通配 + Exclude 三兄弟（DDLM / Main / Singleton）：
+    同一目录下有 4 个 .msix，其中只有 Microsoft.WindowsAppRuntime.<版本>.msix 里带框架 resources.pri。
+    用通配而不是写死 1.8，是为了包版本升级时不用改这里。
+  -->
+  <Target Name="StageFrameworkPri" AfterTargets="Build">
+    <ItemGroup>
+      <_WinAppSdkRuntimeMsix Include="$(_WinAppSdkPriRuntimeMsixDir)\Microsoft.WindowsAppRuntime.*.msix"
+                             Exclude="$(_WinAppSdkPriRuntimeMsixDir)\Microsoft.WindowsAppRuntime.DDLM.*.msix;$(_WinAppSdkPriRuntimeMsixDir)\Microsoft.WindowsAppRuntime.Main.*.msix;$(_WinAppSdkPriRuntimeMsixDir)\Microsoft.WindowsAppRuntime.Singleton.*.msix" />
+    </ItemGroup>
+
+    <!--
+      正常情况下这里恰好 1 个候选：路径起点是 $(PkgMicrosoft_WindowsAppSDK_Runtime)，
+      即被 PackageReference 钉住的那个版本目录，不会混进别的代。
+      万一有人手工往该目录塞了第二份 msix，会让 @(...) 展开成 "a;b" 传给解压任务，
+      错误信息会变成"文件不存在"——所以这里先把它拦下来，报清楚。
+    -->
+    <PropertyGroup>
+      <_WinAppSdkRuntimeMsixPath Condition="'@(_WinAppSdkRuntimeMsix)' != ''">@(_WinAppSdkRuntimeMsix->'%(FullPath)')</_WinAppSdkRuntimeMsixPath>
+    </PropertyGroup>
+    <Message Condition="'$(_WinAppSdkRuntimeMsixPath)' != ''" Importance="high"
+             Text="DirMover: 取框架 pri 的来源 MSIX = $(_WinAppSdkRuntimeMsixPath)" />
+
+    <!-- fail-closed：拿不到 MSIX 直接失败，否则产物不可运行而构建成功。 -->
+    <Error Condition="'$(_WinAppSdkRuntimeMsixPath)' == ''"
+           Text="找不到运行时 MSIX：$(_WinAppSdkPriRuntimeMsixDir)\Microsoft.WindowsAppRuntime.*.msix。框架 pri 无法补齐，产物启动会 0xC000027B —— 拒绝产出不可运行的构建。检查 Microsoft.WindowsAppSDK.Runtime 包是否已还原、_WinAppSdkPriArch 是否映射正确。" />
+    <Error Condition="$(_WinAppSdkRuntimeMsixPath.Contains(';'))"
+           Text="在同一架构目录下命中多个运行时 MSIX（$(_WinAppSdkRuntimeMsixPath)）。请清理该目录多余文件，或把 Microsoft.WindowsAppSDK.Runtime 的版本钉回单一版本 —— pri 尺寸随 SDK 代变化，混用会让门禁阈值失真。" />
+
+    <DirMoverExtractZipEntry
+      ArchivePath="$(_WinAppSdkRuntimeMsixPath)"
+      EntryName="resources.pri"
+      OutputDirectory="$(OutDir)">
+      <Output TaskParameter="ExtractedPath" PropertyName="_StagedFrameworkPri" />
+    </DirMoverExtractZipEntry>
+
+    <DirMoverVerifyFrameworkPri
+      PriPath="$(OutDir)resources.pri"
+      MinBytes="$(_FrameworkPriMinBytes)" />
+  </Target>
+
+  <!--
+    把编译好的 XAML（.xbf）和框架 resources.pri 复制进 publish 目录。
+
+    为什么必须手工补 .xbf：本机构建用 -p:EnableCoreMrtTooling=false 绕开 MSB4062，
+    而"把 .xbf 标为可发布项"恰好是那条工具链的职责之一。少了它，发布目录里一个 .xbf 都没有，
+    启动时 Application.LoadComponent 找不到编译后的 XAML，直接 XamlParseException ——
+    而且进程带 requireAdministrator，用户只会看到闪一下 UAC 然后没了，连日志目录都不会有。
+
+    用 **\*.xbf 递归而不是 *.xbf：Theme/Tokens.xaml 与 Theme/Styles.xaml 各自编译成
+    Theme\Tokens.xbf / Theme\Styles.xbf，只抓根目录会漏掉它们，后果是启动时
+    App.xaml 的 MergedDictionaries 加载失败（同样是静默闪退）。
+    目标路径用 %(RecursiveDir) 还原子目录结构，否则 Theme 下的文件会被压平到根，照样找不到。
+
+    resources.pri 与 .xbf 是两件事：前者是 **框架**资源索引（缺它 0xC000027B），
+    后者是本应用的编译后 XAML（缺它 XamlParseException）。两个都要。
+  -->
+  <!-- 目标名 CopyXbfToPublish 沿用（历史原因）：它实际同时搬 .xbf 与框架 resources.pri，两者缺一都启动失败，但原因不同（缺 .xbf → XamlParseException；缺框架 pri → 0xC000027B）。 -->
+  <Target Name="CopyXbfToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_XbfToPublish Include="$(OutDir)**\*.xbf" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_XbfToPublish)"
+      DestinationFiles="@(_XbfToPublish->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+
+    <Error Condition="!Exists('$(OutDir)resources.pri')"
+           Text="构建输出里没有框架 resources.pri（$(OutDir)resources.pri）。StageFrameworkPri 目标没跑成功，产物启动会 0xC000027B。" />
+    <Copy
+      SourceFiles="$(OutDir)resources.pri"
+      DestinationFolder="$(PublishDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <!--
+    发布门禁：publish\ 里 4 个 pri 必须全部在位，且 resources.pri 必须是**框架那份**。
+
+    为什么是 4 个而不是 1 个：`resources.pri` 是"补缺"的那一个，另外 3 个由自包含构建自己产出
+    （没有手工拷过的产物里就是那 3 个在位、缺第 4 个）。只验 1 个会让后来的人误读成"只需要一个文件"，
+    也看不出 payload 是否真的到位。但如果 4 个都设尺寸阈值就会误伤 —— 随 SDK 代变化，
+    旧代 Microsoft.UI.Xaml.Controls.pri = 1,229,952 B、当前代 1,258,296 B。
+    所以：另外 3 个**只判存在**，只有 resources.pri 判尺寸。
+
+    判据必须"按文件名定位再比尺寸"，不能用"找目录里最大的 pri"或"存在任一 ≥1.3M 的 pri"：
+    当前代 Microsoft.UI.Xaml.Controls.pri 已达 1,258,296 B，离 1,300,000 只差 41,704 B；
+    某代把它抬过阈值后，那种写法会在 resources.pri 缺失时**假绿**。
+    （不要去"优化"成扫目录取最大，这条注释就是拦这个的。）
+
+    目标链：CopyXbfToPublish → 本目标。显式写 AfterTargets="CopyXbfToPublish" 而不是同样挂 Publish，
+    否则两者顺序取决于文件里的声明顺序，哪天调换就会在拷贝之前报"缺文件"。
+  -->
+  <Target Name="VerifyFrameworkPriInPublish" AfterTargets="CopyXbfToPublish">
+    <!--
+      门禁无条件执行（单文件形态已废弃，见上方说明）：现行唯一交付形态是散落的
+      自包含 payload，缺任何一个 pri 都会 0xC000027B，所以这里必须 fail-closed。
+    -->
+    <Error Condition="!Exists('$(PublishDir)Microsoft.UI.Xaml.Controls.pri')"
+           Text="publish\ 缺 Microsoft.UI.Xaml.Controls.pri（自包含 payload 未到位）：产物启动会 0xC000027B。" />
+    <Error Condition="!Exists('$(PublishDir)Microsoft.UI.pri')"
+           Text="publish\ 缺 Microsoft.UI.pri（自包含 payload 未到位）：产物启动会 0xC000027B。" />
+    <Error Condition="!Exists('$(PublishDir)Microsoft.WindowsAppRuntime.pri')"
+           Text="publish\ 缺 Microsoft.WindowsAppRuntime.pri（自包含 payload 未到位）：产物启动会 0xC000027B。" />
+
+    <DirMoverVerifyFrameworkPri
+      PriPath="$(PublishDir)resources.pri"
+      MinBytes="$(_FrameworkPriMinBytes)" />
+  </Target>
+
+  <!--
+    把 app.ico 嵌入程序集（逻辑名 DirMover.App.Assets.app.ico）。
+    为什么：WinUI 默认标题栏图标是系统通用小窗图形，不会自动取 exe 内嵌图标，
+    需要运行时显式 AppWindow.SetIcon（见 MainWindow.ApplyWindowIcon）。
+    嵌入副本而非依赖散落文件，保证 Debug / publish / 单文件三种产物形态都拿得到。
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\app.ico" />
+  </ItemGroup>
+
+</Project>

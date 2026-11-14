@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DirMover.Core.Tests —— 只测 Core，不依赖 App（本机也编译不了 App）。
+
+    为什么测试工程是"红线守卫"的载体：原项目的 12 条红线（简报 §10）都是
+    "某条安全路径在特定输入下必须这样"的行为断言。肉眼 review 无法阻止后来者
+    顺手放宽一条闸门，只有把这些断言固化下来才能。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>DirMover.Core.Tests</RootNamespace>
+    <AssemblyName>DirMover.Core.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DirMover.Core\DirMover.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

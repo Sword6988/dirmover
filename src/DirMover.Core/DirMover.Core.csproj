@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DirMover.Core —— 引擎层：静态真源、注册表、文件系统、编排、文案、列宽算法。
+
+    设计要点（为什么这么写）：
+    1. 本机没有 Visual Studio 的 AppxPackage/PriGen MSBuild 任务，App 项目**无法编译**。
+       因此一切"可判定逻辑"必须落在这里，让 `dotnet build` / `dotnet test` 真正验证它。
+    2. 零 PackageReference：Core 只用 BCL + P/Invoke。多一个包就多一处"本机还原不了"
+       的失败面，也让红线守卫（grep PackageReference）失效。
+    3. 零 UI 引用：不出现 Microsoft.UI.* / Windows.*。Core 一旦引用 UI 类型，
+       单测就只能跑在有 UI 线程的宿主里，安全逻辑再也无法脱离界面被验证。
+
+    InternalsVisibleTo 给测试工程：Catalog.SystemDrive 需要 internal setter 才能模拟
+    "系统盘不是 C:"（审计 A4：写死 C: 会让整道禁区闸门在改过盘符的机器上 fail-open）。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace>DirMover.Core</RootNamespace>
+    <AssemblyName>DirMover.Core</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>DirMover.Core.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

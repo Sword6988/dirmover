@@ -1,0 +1,40 @@
+# DirMover —— 构建产物与本地状态（审计 A-10）
+#
+# 只列"构建/运行会生成、或只与本机有关"的东西。源码、文档、脚本一律不在此列：
+# 一旦有人把 out/ 或 publish/ 提交上来，"产物来自哪次构建"就再也说不清（见
+# docs/02-architecture.md §9.3 D-7：一份旧代残留的 winmd 就是这样一路跟到 publish 的）。
+#
+# 注意：仓库已初始化（首次推送时建立），产物目录一律不入库 —— 发布物只走
+# GitHub Release 附件，版本库里只有源码与文档，"产物来自哪次构建"始终可追。
+
+# .NET 构建输出
+bin/
+obj/
+
+# 本项目的发布与临时产物目录
+out/
+publish/
+dist/
+logs/
+backups/
+
+# 仓库内的历史快照/临时工作副本（只与本机有关，进版本库没有意义：
+# 它们是整份源码的副本，一旦入库会与真源码形成两份互相矛盾的"事实"）
+.baksrc/
+repo-src/
+.workbuddy/
+
+# 打包/发布缓存（若将来引入）
+*.binlog
+*.nupkg
+
+# Visual Studio / Rider / VS Code 的用户态文件
+.vs/
+*.user
+*.suo
+*.userosscache
+.idea/
+
+# 操作系统垃圾
+Thumbs.db
+desktop.ini

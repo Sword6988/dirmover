@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Styles.xaml —— 控件外观聚合点。
+
+  分层规则（对应 PRD §9.3 的"主/次/危险"三级）：
+    * 主操作：PrimaryActionButtonStyle —— 基于 AccentButtonStyle 只调 Padding，
+      全屏唯一强调按钮（故此处**不**重定义强调视觉，只放吸气垫）；
+    * 危险操作：DangerButtonStyle —— 淡红填充式，底色/前景取 Danger 令牌，
+      不抢主按钮的强调色，又能在扫视时被识别为"不可逆动作"；
+    * 链接操作：LinkButtonStyle —— 用于状态栏的"打开日志目录"这类轻动作。
+
+  本文件不出现任何颜色字面量与裸像素：全部引用 Tokens.xaml 的令牌。
+-->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+      危险操作按钮（恢复系统默认值）：淡红填充式。
+      底色用 DangerSubtleBrush（红只在"这一颗按钮"上出现，且比描边式更早被扫视到），
+      border 归零避免描边抢色。
+      悬停/按下加深一档（DangerButtonHover/Pressed 令牌）不在本样式里落 Setter：
+      ButtonBackgroundPointerOver/Pressed 是模板里的主题画刷键而非 Button 属性，
+      且 FrameworkElement.Resources 也不是依赖属性，两种 Setter 写法都会被
+      XAML 编译器拒绝（WMC0090 / WMC0095）。合规落点是 MainWindow 里该按钮的
+      实例级 Resources 同名覆盖（模板以 {ThemeResource} 解析这两个键，覆盖即生效，
+      零模板自绘、主题切换照常跟随）。
+    -->
+    <Style
+        x:Key="DangerButtonStyle"
+        BasedOn="{StaticResource DefaultButtonStyle}"
+        TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource DangerSubtleBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource DangerTextBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="12,6" />
+        <!-- 圆角与主按钮同值（ButtonCornerRadius）：三个按钮是一组，缺一个就露馅。 -->
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}" />
+    </Style>
+
+    <!-- 轻量链接按钮（打开日志目录 / 以管理员身份重启） -->
+    <Style
+        x:Key="LinkButtonStyle"
+        BasedOn="{StaticResource DefaultHyperlinkButtonStyle}"
+        TargetType="HyperlinkButton">
+        <Setter Property="Foreground" Value="{ThemeResource AccentTextBrush}" />
+        <Setter Property="Padding" Value="4,2" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+    </Style>
+
+    <!--
+      主操作按钮：全屏唯一强调按钮。
+      为什么 BasedOn DefaultButtonStyle 而不是 AccentButtonStyle：实测 AccentButtonStyle
+      的 Background（{ThemeResource AccentFillColorDefaultBrush}）在其自身资源上下文内解析，
+      App 级/合并字典级对强调画刷的覆盖它一概看不见（勾选框勾色同样如此），其结果就是
+      "强调按钮跟随 OS 强调色"。改为显式引用 Tokens 的 AccentBrush —— 与危险按钮
+      （DangerButtonStyle 引用 DangerSubtleBrush）完全同一机制，品牌青碧因此可控。
+      Padding 14,7→16,8：强调色已经让它在色彩上最重，再给一点体积，才与"恢复默认"拉开量级。
+      悬停/按下/禁用三态由 MainWindow 里该按钮的实例级主题键覆盖提供（同危险按钮机制）。
+    -->
+    <Style
+        x:Key="PrimaryActionButtonStyle"
+        BasedOn="{StaticResource DefaultButtonStyle}"
+        TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource AccentBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource OnAccentTextBrush}" />
+        <!-- 描边归零（同危险按钮）：青碧填充上再描一圈灰边会显脏 -->
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="16,8" />
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}" />
+    </Style>
+
+    <!-- 表头文字（唯一一处允许出现"列标题"的位置，文案由 UiText 注入） -->
+    <Style x:Key="TableHeaderTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <!-- 前景改用表头专用令牌：比正文淡一档，"列标题 vs 数据"多一个颜色维度（仍 ≥ 4.5:1） -->
+        <Setter Property="Foreground" Value="{ThemeResource TableHeaderTextBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="None" />
+        <!-- 字间距 50（1/1000 em）：小字号大写式表头的可读性补偿 -->
+        <Setter Property="CharacterSpacing" Value="50" />
+    </Style>
+
+    <!-- 表格单元文字（状态列不允许裁字，故 TextTrimming 由行模板按列分别设置） -->
+    <Style x:Key="TableCellTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="Foreground" Value="{ThemeResource TextPrimaryBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!--
+      名称列专用：比正文大一档并加半粗。
+      七行里只有名称是"扫读锚点"，路径是细节；两者同字重时眼睛没有落点，
+      整屏看起来像一堵文字墙。前景仍由行模板按 RowState 逐列覆盖。
+    -->
+    <Style x:Key="TableNameCellTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TableCellTextStyle}">
+        <Setter Property="FontSize" Value="{StaticResource FontSizeStrong}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- 状态栏文字（muted，可用宽度不足时尾部省略） -->
+    <Style x:Key="StatusTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="Foreground" Value="{ThemeResource MutedTextBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <!--
+      表格行容器：行高固定 40、内容拉伸、去掉列表自身的选中/悬停视觉。
+      为什么要覆盖：ListView 默认"点击行设置 SelectedItem"，会与行首 CheckBox
+      形成双状态（PRD 语义里勾选才是唯一状态）。勾选态与着色完全由 RowState 驱动，
+      因此行容器只保留结构，不承担任何状态表达。悬停/按下的画刷覆盖在 T14 补齐
+      （需要重写 ListViewItemPresenter 模板，属 T14 的核对清单第 ⑤ 项）。
+    -->
+    <Style x:Key="FolderRowItemStyle" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="{StaticResource RowHeight}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+    </Style>
+
+    <!-- ============================================================ 弹窗内容排版 -->
+    <!--
+      弹窗正文不再以"裸字符串"塞进 ContentDialog.Content（2026-11-14 统一）。
+      裸字符串由 ContentPresenter 自动合成一个 TextBlock：行高、段间距、换行宽度
+      全部不可控，多段正文只能靠空行硬撑，长内容还会顶破弹窗（无滚动）。
+      现在正文一律是"段落 StackPanel + 段落 TextBlock"或"等宽报告块 + 滚动容器"，
+      尺度取自 Tokens 的 Dialog* 令牌，14 类弹窗共用同一套节奏。
+    -->
+    <Style x:Key="DialogBodyStackStyle" TargetType="StackPanel">
+        <Setter Property="Spacing" Value="{StaticResource DialogParagraphSpacing}" />
+        <Setter Property="MaxWidth" Value="{StaticResource DialogContentMaxWidth}" />
+        <Setter Property="MaxHeight" Value="{StaticResource DialogContentMaxHeight}" />
+    </Style>
+
+    <Style x:Key="DialogBodyTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="LineHeight" Value="{StaticResource DialogLineHeight}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{ThemeResource TextPrimaryBrush}" />
+        <!-- 允许选中：失败原因/路径需要能复制出去（弹窗是这些信息的唯一出口） -->
+        <Setter Property="IsTextSelectionEnabled" Value="True" />
+    </Style>
+
+    <!-- 失败清单段落：与"摘要"段落拉开层次，用危险色而非整段加粗（加粗会让长文本成块） -->
+    <Style x:Key="DialogBodyDangerTextStyle" TargetType="TextBlock" BasedOn="{StaticResource DialogBodyTextStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource DangerTextBrush}" />
+    </Style>
+
+    <!-- 等宽报告块：浅灰底 + 1px 细边，把"机器产出的报告"与"人写的正文"在视觉上分开 -->
+    <Style x:Key="DialogMonoSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource PageBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource CardBorderThickness}" />
+        <Setter Property="CornerRadius" Value="{StaticResource DialogMonoCornerRadius}" />
+        <Setter Property="Padding" Value="{StaticResource DialogMonoPadding}" />
+    </Style>
+
+    <Style x:Key="DialogMonoTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="{StaticResource DialogMonoFontSize}" />
+        <Setter Property="LineHeight" Value="{StaticResource DialogMonoLineHeight}" />
+        <!-- 报告是列对齐文本，绝不能折行（折行即毁对齐），横向滚动由外层 ScrollViewer 承担 -->
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="Foreground" Value="{ThemeResource TextPrimaryBrush}" />
+        <Setter Property="IsTextSelectionEnabled" Value="True" />
+    </Style>
+
+    <!-- 报告滚动容器：纵横都可滚（列宽超窗时靠横滚，不折行） -->
+    <Style x:Key="DialogMonoScrollStyle" TargetType="ScrollViewer">
+        <Setter Property="HorizontalScrollBarVisibility" Value="Auto" />
+        <Setter Property="HorizontalScrollMode" Value="Auto" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="VerticalScrollMode" Value="Auto" />
+        <Setter Property="MaxWidth" Value="{StaticResource DialogContentMaxWidth}" />
+        <Setter Property="MaxHeight" Value="{StaticResource DialogContentMaxHeight}" />
+    </Style>
+
+</ResourceDictionary>

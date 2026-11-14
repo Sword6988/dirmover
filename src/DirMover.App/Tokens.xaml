@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tokens.xaml —— 设计令牌（颜色 / 间距 / 字号 / 行高）的唯一真源。
+
+  为什么令牌独立成字典：
+    行级着色有 7 种状态（Normal/Alt/Disabled/Pending/Active/Done/Failed），
+    每种都要"背景 + 前景"两个值。若把这些颜色写字面量散在行模板与转换器里，
+    改一次配色要同时改 XAML 和 C#，且深色主题无法整体切换。收进令牌后：
+      * 转换器只做 RowState → 资源键 的 switch，代码里没有一个颜色字面量；
+      * 深色主题只需在 ThemeDictionaries 的 Default 分支换值，语义不变。
+
+  键名与架构文档 §7.4 的资源名严格对应（SurfaceBrush / RowAltBrush / ...）。
+-->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.ThemeDictionaries>
+
+        <!-- 深色（WinUI 的 "Default" 即深色主题） -->
+        <ResourceDictionary x:Key="Default">
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#1F2124" />
+            <SolidColorBrush x:Key="RowAltBrush" Color="#26292C" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F4F6" />
+            <SolidColorBrush x:Key="TextDisabledBrush" Color="#8E9298" />
+            <SolidColorBrush x:Key="PendingRowBrush" Color="#1B3A55" />
+            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#16414A" />
+            <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#1B3A24" />
+            <SolidColorBrush x:Key="DangerSubtleBrush" Color="#421C22" />
+            <SolidColorBrush x:Key="DangerTextBrush" Color="#FF9BA5" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#363A3E" />
+            <SolidColorBrush x:Key="MutedTextBrush" Color="#A6ABB2" />
+            <SolidColorBrush x:Key="WarningTextBrush" Color="#F2C661" />
+            <SolidColorBrush x:Key="AccentTextBrush" Color="#5BD1D8" />
+
+            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用）与状态圆点用文字色 -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#63D6DC" />
+            <SolidColorBrush x:Key="PendingTextBrush" Color="#8FC7EE" />
+            <SolidColorBrush x:Key="SuccessTextBrush" Color="#85D991" />
+
+            <!-- 新增：危险按钮的两档悬停/按下底色（淡红填充式按钮的深色档） -->
+            <SolidColorBrush x:Key="DangerButtonHoverBrush" Color="#52262C" />
+            <SolidColorBrush x:Key="DangerButtonPressedBrush" Color="#612E35" />
+
+            <!-- 新增：试运行徽标的底色（暖黄淡填充，深色档） -->
+            <SolidColorBrush x:Key="WarningSubtleBrush" Color="#3A2F12" />
+
+            <!-- 新增：行悬停底色（本批仅入令牌，不接线——悬停覆盖待后续模板任务） -->
+            <SolidColorBrush x:Key="RowHoverBrush" Color="#2B2F33" />
+
+            <!-- 新增：表头下方的 1px 分隔线（比主分隔线浅半档，避免次要线抢主结构线的权重） -->
+            <SolidColorBrush x:Key="HeaderLineBrush" Color="#41464B" />
+
+            <!-- 新增：表格空态徽章（圆形底 + 勾号前景，深色档取 SuccessSubtleBrush 同族的暗绿） -->
+            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#1E3B2F" />
+            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#85D991" />
+        </ResourceDictionary>
+
+        <!-- 浅色（基准主题） -->
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RowAltBrush" Color="#F4F6F7" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1B1E22" />
+            <SolidColorBrush x:Key="TextDisabledBrush" Color="#74787D" />
+            <SolidColorBrush x:Key="PendingRowBrush" Color="#E8F1FA" />
+            <SolidColorBrush x:Key="AccentSubtleBrush" Color="#DCF0F1" />
+            <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#E3F2E4" />
+            <SolidColorBrush x:Key="DangerSubtleBrush" Color="#FBE7E9" />
+            <SolidColorBrush x:Key="DangerTextBrush" Color="#A4262C" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#E3E5E8" />
+            <SolidColorBrush x:Key="MutedTextBrush" Color="#62666C" />
+            <SolidColorBrush x:Key="WarningTextBrush" Color="#9A5B00" />
+            <SolidColorBrush x:Key="AccentTextBrush" Color="#0B6B76" />
+
+            <!-- 新增：强调色本体（按钮/勾选/下拉高亮用）与状态圆点用文字色 -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#0E7C86" />
+            <SolidColorBrush x:Key="PendingTextBrush" Color="#1E5E94" />
+            <SolidColorBrush x:Key="SuccessTextBrush" Color="#176B31" />
+
+            <!-- 新增：危险按钮的两档悬停/按下底色（淡红填充式按钮的浅色档） -->
+            <SolidColorBrush x:Key="DangerButtonHoverBrush" Color="#F6D5D8" />
+            <SolidColorBrush x:Key="DangerButtonPressedBrush" Color="#F0C3C7" />
+
+            <!-- 新增：试运行徽标的底色（暖黄淡填充，浅色档） -->
+            <SolidColorBrush x:Key="WarningSubtleBrush" Color="#FBF0DC" />
+
+            <!-- 新增：行悬停底色（本批仅入令牌，不接线——悬停覆盖待后续模板任务） -->
+            <SolidColorBrush x:Key="RowHoverBrush" Color="#EBF0F2" />
+
+            <!-- 新增：表头下方的 1px 分隔线（#D6DADD→#DEE1E4：比主分隔线浅半档，避免次要线抢主结构线的权重） -->
+            <SolidColorBrush x:Key="HeaderLineBrush" Color="#DEE1E4" />
+
+            <!-- 新增：表格空态徽章（圆形底 + 勾号前景，浅色档用淡青绿填充配深绿勾号） -->
+            <SolidColorBrush x:Key="EmptyStateBadgeBrush" Color="#E1F5EE" />
+            <SolidColorBrush x:Key="EmptyStateCheckBrush" Color="#0F6E56" />
+        </ResourceDictionary>
+
+    </ResourceDictionary.ThemeDictionaries>
+
+    <!-- 间距（DIP，独立于主题） -->
+    <x:Double x:Key="SpaceXs">4</x:Double>
+    <x:Double x:Key="SpaceS">8</x:Double>
+    <x:Double x:Key="SpaceM">12</x:Double>
+    <x:Double x:Key="SpaceL">16</x:Double>
+    <x:Double x:Key="SpaceXl">24</x:Double>
+
+    <!-- 字号（像素/DIP） -->
+    <x:Double x:Key="FontSizeCaption">12</x:Double>
+    <x:Double x:Key="FontSizeBody">14</x:Double>
+    <!-- 新增：强文字字号（比正文高半档，用于需要强调的正文文字） -->
+    <x:Double x:Key="FontSizeStrong">15</x:Double>
+    <x:Double x:Key="FontSizeTitle">20</x:Double>
+
+    <!-- 结构性尺寸 -->
+    <!-- 行高 40→42：给状态列圆点留出垂直呼吸感 -->
+    <x:Double x:Key="RowHeight">42</x:Double>
+    <!-- 新增：表头行高（表头比数据行矮一档，扫视时分层） -->
+    <x:Double x:Key="HeaderRowHeight">36</x:Double>
+    <!-- 进度条 160→180：给状态栏文字让出可读宽度 -->
+    <x:Double x:Key="ProgressWidth">180</x:Double>
+    <!-- 新增：状态列圆点直径 -->
+    <x:Double x:Key="StatusDotSize">6</x:Double>
+    <!-- 新增：表格空态徽章（圆形）直径 -->
+    <x:Double x:Key="EmptyStateBadgeSize">44</x:Double>
+    <x:Double x:Key="CheckColumnWidth">40</x:Double>
+    <!-- 新增：进度条最小高度（细进度条的可见性下限） -->
+    <x:Double x:Key="ProgressBarMinHeight">4</x:Double>
+
+    <!--
+      未勾选行的整体不透明度。
+      放在唯一真源里而不是转换器的 const：同一个透明度如果同时出现在
+      Tokens.xaml 与 C# 两处，改一处就会得到"半灰不灰"的两行。
+      （只在转换器里被读取；Styles.xaml 没有能表达"按行状态变化的不透明度"的 Setter，
+       故它不引用本键，这是刻意的，不是遗漏。）
+      0.55→0.70：Disabled 行仍需可读（可读性优先于"隐去感"）。
+    -->
+    <x:Double x:Key="DirMoverDisabledOpacity">0.70</x:Double>
+
+    <!-- 常用 Thickness（Margin/Padding 需要 Thickness 而非 Double） -->
+    <!-- 页边距 16→"24,16,24,16"：左右放宽，配合表格的 5 列呼吸感 -->
+    <Thickness x:Key="PagePadding">24,16,24,16</Thickness>
+    <Thickness x:Key="StackGap">0,8,0,0</Thickness>
+    <!-- 分隔线上方间距 8→12：分隔线与上下区块解耦 -->
+    <Thickness x:Key="DividerGap">0,12,0,0</Thickness>
+    <Thickness x:Key="DangerGap">24,0,0,0</Thickness>
+    <!-- 新增：区块级左缩进（操作条等需要与表格错半档的区块） -->
+    <Thickness x:Key="SectionGap">16,0,0,0</Thickness>
+
+</ResourceDictionary>

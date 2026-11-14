@@ -1,0 +1,237 @@
+%% DirMover WinUI 3 重写 — 三张关键时序图
+%% 对应 docs/02-architecture.md §4.2 / §4.3 / §4.4
+%% 用法：三个图分别对应文件内的三个 sequenceDiagram 块（Mermaid 工具通常一次渲染一张，
+%%       故用 %% ---- 分隔 ---- 注释切开；GitHub 预览会合并渲染，可接受）。
+
+%% ============================================================
+%% ① 转移单项：rename 路径 / 复制路径 / 各失败分支
+%% ============================================================
+
+sequenceDiagram
+  autonumber
+  actor U as 用户
+  participant VM as MainViewModel
+  participant DLG as DialogService
+  participant EN as TransferEngine
+  participant JR as IntentJournal
+  participant RG as RegistryStore
+  participant FS as FsOps
+  participant PR as ITransferProgress
+
+  U->>VM: 点「开始转移」或 Ctrl+Enter
+  VM->>VM: 校验：勾选数>0 且 目标根可用 且 非忙碌
+  alt 零勾选 / 无可用目标盘
+    VM->>DLG: WarningAsync(无法开始)
+    DLG-->>U: 请先勾选至少一个项目。
+  else 全部项 same
+    VM->>DLG: InfoNoMoveAsync()
+  else 可执行
+    VM->>DLG: ConfirmTransferAsync(count, scale, targetRoot)
+    alt 用户选「否」
+      DLG-->>VM: false 并清除行 Pending 底色，回 Idle
+    else 用户选「是」
+      VM->>VM: 行置 Pending，主按钮切「停止」
+      VM->>EN: ExecuteAsync(plan, progress, observer, ct)
+      EN->>RG: Snapshot(全部 registryTargets)
+      EN->>RG: SaveSnapshot(backups/registry-yyyyMMdd-HHmmss.json)
+      alt 快照落盘失败
+        EN->>EN: report.Notes 追加「注册表备份未能落盘，本次无法一键回滚」，不阻断
+      end
+      EN->>JR: Begin(plan, snapshotPath)
+      loop 每个 PlanItem，顺序执行
+        EN->>JR: Mark(item, Pending)
+        alt item.Same
+          EN->>EN: outcome = Skipped
+        else item.RegistryOnly
+          EN->>RG: Snapshot(本项 targets) 后 SetText 逐个写
+          alt 任一值写失败
+            RG-->>EN: 就地把本项已写入值回滚
+            EN->>JR: Mark(item, RegistryFailed)
+          else 成功
+            EN->>JR: Mark(item, SourceRemoved)
+          end
+        else 正常项
+          EN->>FS: ReparseAncestor(target)（执行期复查，建目录之前）
+          alt 命中链接/联接点
+            EN-->>VM: outcome = Failed（源目录未改动）
+          else 未命中
+            EN->>FS: EnsureDirectory(父目录)
+            EN->>FS: TryAtomicMove(current, target)
+            alt 路径 A：原子 rename 成功
+              EN->>JR: Mark(item, Copied)
+            else 路径 A 不适用（目标已存在 / 跨卷 / 重命名失败）
+              EN->>JR: Mark(item, Copying)
+              EN->>FS: CopyMerge(current, target, progress, ct)
+              FS-->>PR: Report(done, total, rel) 且 ≥100ms 节流
+              alt ct 已取消
+                EN->>JR: Mark(item, Cancelled)
+                EN-->>VM: outcome = Cancelled（源文件未删除）
+              else CopyResult.Errors 非空
+                EN->>JR: Mark(item, CopyFailed)
+                EN-->>VM: outcome = Failed（复制失败 + 前 3 条 + 共 N 条）
+              else 复制完成
+                EN->>FS: VerifyCopy(current, target, result, progress, ct)
+                alt 校验未通过
+                  EN->>JR: Mark(item, VerifyFailed)
+                  EN-->>VM: outcome = Failed（已保留源目录 + detail）
+                else 校验通过
+                  EN->>JR: Mark(item, Copied)
+                end
+              end
+            end
+            Note over EN: 至此才允许写注册表与删源；任一步失败都不删源
+            EN->>RG: Snapshot(本项 targets) 后 SetText 逐个写
+            alt 写注册表失败
+              RG-->>EN: 就地把本项已写入值回滚（跳过 Unknown）
+              EN->>EN: 若路径 A 且非合并项，尝试把目录改回原位
+              EN->>JR: Mark(item, RegistryFailed)
+              EN-->>VM: outcome = Failed（必须说明数据实际位置）
+            else 写注册表成功
+              EN->>JR: Mark(item, RegistryWritten)
+              alt 路径 A（rename）
+                EN->>JR: Mark(item, SourceRemoved)
+              else 路径 B：删源前两道闸门
+                EN->>FS: ResolvesToSame(current, target)
+                EN->>FS: EnumerateSource(current) 与清单比 (size, mtime)
+                alt 同一物理位置 / 源有增删改写 / 复查读不到
+                  EN->>JR: Mark(item, SourceRemovalFailed)
+                  EN-->>VM: outcome = Failed（保留源目录，注册表已指向 target）
+                else 指纹一致
+                  EN->>FS: SafeRemoveDirectory(current)
+                  alt 删源失败（占用型，退避 3 次仍失败）
+                    EN->>JR: Mark(item, SourceRemovalFailed)
+                    EN-->>VM: outcome = Failed（数据已校验，重启后手动删除即可）
+                  else 删源成功
+                    EN->>JR: Mark(item, SourceRemoved)
+                    EN->>JR: Finish(item)
+                    EN-->>VM: outcome = Ok
+                  end
+                end
+              end
+            end
+          end
+        end
+        VM->>VM: OnItemFinished 使行 Done/Failed，推进进度条
+      end
+      EN->>JR: CloseRun()（Pending 与 Cancelled 一并注销）
+      EN-->>VM: TransferReport
+      VM->>DLG: ResultAsync(report)
+      alt 有失败项
+        VM->>VM: 露出「打开日志目录」
+      end
+    end
+  end
+
+%% ============================================================
+%% ② 恢复系统默认值：registry_only 分支
+%% ============================================================
+
+sequenceDiagram
+  autonumber
+  actor U as 用户
+  participant VM as MainViewModel
+  participant DLG as DialogService
+  participant EN as TransferEngine
+  participant RG as RegistryStore
+  participant FS as FsOps
+  participant JR as IntentJournal
+
+  U->>VM: 点「恢复系统默认值」
+  VM->>VM: Normalize 勾选；零选 → 提示「未选择项目」
+  VM->>EN: BuildRestorePlan(selected, scan=false)
+  loop 每个选中项
+    EN->>RG: ResolveCurrent(权威值名 → 别名 → 系统默认)
+    EN->>EN: target = Expand(DefaultPath)，RegistryPayload = DefaultPath（保留 %USERPROFILE%）
+    EN->>EN: Same = SamePath(current, target)
+    alt 注册表读取失败
+      EN->>EN: InvalidReason = 读取注册表失败，无法确认需要同步的别名（fail-closed）
+    else CheckRestoreSource 命中（盘根 / 系统目录 / 互为祖先）
+      EN->>EN: InvalidReason = 具体原因
+    else 源目录不存在
+      EN->>EN: RegistryOnly = true（只修注册表，不动任何文件）
+    else 正常
+      EN->>FS: 同路径与 merge 判定（规模扫描延后到执行前）
+    end
+  end
+  EN-->>VM: PlanItemList
+  VM->>DLG: ConfirmRestoreAsync(将恢复的显示名)
+  alt 用户取消
+    DLG-->>VM: false → 回 Idle
+  else 确认
+    VM->>VM: 主按钮「恢复中…」并禁用，不提供停止入口
+    VM->>EN: RestoreDefaultsAsync(keys, progress, observer, ct)
+    EN->>EN: BuildRestorePlan(scan=true)
+    EN->>RG: Snapshot(全部 targets) + SaveSnapshot
+    EN->>JR: Begin(plan, snapshotPath)
+    loop 每项
+      alt RegistryOnly
+        EN->>RG: Snapshot(本项) 后 SetText(registryPayload)
+        alt 写失败
+          RG-->>EN: 就地回滚本项已写入值
+          EN->>JR: Mark(item, RegistryFailed)
+          EN->>EN: outcome = Failed
+        else 成功
+          EN->>JR: Mark(item, SourceRemoved)（已完全落实，无需回滚）
+          EN->>EN: outcome = Ok（当前位置已不存在，没有文件需要搬回）
+        end
+      else 正常搬回
+        EN->>FS: 与转移完全相同的事务（复制→校验→写注册表→删源）
+        FS-->>EN: 校验通过才继续；空间不足只阻断该项
+        EN->>JR: Mark(item, 相应阶段)
+      end
+    end
+    EN->>JR: CloseRun()
+    EN-->>VM: TransferReport
+    VM->>DLG: ResultAsync（成功时不显示「打开日志目录」）
+    VM->>EN: BuildPlan(scan=false) 刷新表格
+  end
+
+%% ============================================================
+%% ③ 启动时未完成事务回滚
+%% ============================================================
+
+sequenceDiagram
+  autonumber
+  participant APP as App / MainWindow
+  participant VM as MainViewModel
+  participant DLG as DialogService
+  participant JR as IntentJournal
+  participant RG as RegistryStore
+  participant TR as SnapshotTrimmer
+  actor U as 用户
+
+  APP->>VM: Window.Loaded
+  VM->>VM: InitializeAsync：盘枚举 + BuildPlan(scan=false)
+  VM->>VM: await Delay(400 ms)
+  VM->>JR: ReadPending(backupDir)
+  alt ReadError 非空（不可读 / JSON 损坏 / 结构异常）
+    JR-->>VM: Items 空，ReadError = 原因
+    VM->>DLG: WarningAsync(上次事务记录不可用)
+    DLG-->>U: 无法判断是否有半完成项，也无法一键回滚，请人工核对
+  else 干净
+    JR-->>VM: Items 空，ReadError 空 → 静默结束
+  else 有残留项
+    JR-->>VM: PendingIntent 列表（显示名 + 阶段标签 + 源 / 目标）
+    VM->>DLG: AskPendingIntentAsync(items)（是 / 否 / 取消）
+    alt 选「取消」
+      DLG-->>VM: Keep → 不动记录，下次启动再提示
+    else 选「否」
+      DLG-->>VM: Ignore → JR.Discard()
+    else 选「是」
+      DLG-->>VM: Rollback
+      VM->>JR: UnfinishedRegistryTargets(pending)
+      JR-->>VM: 未完成项（Stage != SourceRemoved）涉及的 (子键, 值名) 集合
+      VM->>RG: LoadSnapshot(pending 首个 SnapshotPath)
+      alt 全部项 RegistryKnown == false（旧日志无 registry 字段）
+        VM->>TR: 不裁剪（绝不凭残缺信息收窄）
+      else 字段存在
+        VM->>TR: Restrict(snapshot, targets)
+        TR-->>VM: 裁剪后快照 + 已跳过 N 处属于已完成项目
+      end
+      VM->>RG: Rollback(trimmed)
+      RG-->>VM: 恢复 a 处 / 删除 b 处 / 因原值未知跳过 d 处
+      VM->>DLG: 回滚结果（成功 / 失败）
+      VM->>JR: Discard()
+    end
+  end
+  VM->>VM: BuildPlan(scan=false) 刷新「当前位置」列

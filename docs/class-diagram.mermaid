@@ -1,0 +1,251 @@
+%% DirMover WinUI 3 重写 — 类图（主干，仅公开契约）
+%% 对应 docs/02-architecture.md §4.1
+%% 说明：List~T~ 为 Mermaid 泛型写法；RollbackCounts 等价 (int Restored, int Removed)
+
+classDiagram
+  direction LR
+
+  class FolderSpec {
+    +string Key
+    +string Display
+    +string ValueName
+    +string DefaultPath
+  }
+  class Catalog {
+    <<static>>
+    +UserShellFoldersSubKey
+    +ShellFoldersSubKey
+    +int SpaceMarginBytes
+    +All() FolderSpecList
+    +ByKey(key) FolderSpec
+    +ForbiddenTargetRoots() stringList
+    +ForbiddenSourceTrees() stringList
+  }
+  class RunConfig {
+    +string DestinationRoot
+    +bool CreateUserDirectory
+    +bool DryRun
+    +Selected
+    +Normalize()
+    +ComposeTarget(spec, current, userName) string
+  }
+  class IRegistryBackend {
+    <<interface>>
+    +ReadValue(subKey, name)
+    +ReadHklmValue(subKey, name)
+    +WriteValue(subKey, name, data, kind)
+    +DeleteValue(subKey, name)
+    +EnumerateValues(subKey)
+  }
+  class Win32RegistryBackend
+  class InMemoryRegistryBackend
+  class RegistryStore {
+    +LastReadError
+    +LastRollbackSkipped
+    +GetRaw(subKey, name)
+    +SetText(subKey, name, value) RegistryValueKind
+    +Exists(subKey, name) bool
+    +Snapshot(targets) RegistrySnapshot
+    +Rollback(snapshot) RollbackCounts
+    +SaveSnapshot(backupDir, snapshot) string
+  }
+  class RegistrySnapshot
+  class RegistryEntry {
+    +bool Existed
+    +bool Unknown
+  }
+  class PathTools {
+    <<static>>
+    +ToExtended(path) string
+    +FromExtended(path) string
+    +Normalize(path) string
+    +SamePath(a, b) bool
+    +IsWithin(child, parent) bool
+    +ResolvesToSame(a, b) bool
+    +LongPath(path) string
+    +VolumeKey(path) string
+    +FreeSpace(path) long
+  }
+  class DriveInventory {
+    <<static>>
+    +ListFixedNonSystem() DriveVolumeList
+    +PreferredTargetRoot(drives) string
+  }
+  class DestinationGuard {
+    <<static>>
+    +ValidateDestination(target, sources) GuardResult
+    +ReparseAncestor(path) string
+    +CheckSourceTree(path) SourceRiskResult
+    +CheckRestoreSource(source, target) GuardResult
+  }
+  class FsOps {
+    <<static>>
+    +ScanTree(root, limitFiles) TreeStat
+    +EnumerateSource(root, skipNames) SourceTree
+    +CopyMerge(src, dst, progress, ct, skipNames) CopyResult
+    +VerifyCopy(src, dst, result, progress, ct) VerifyResult
+    +TryAtomicMove(src, dst) MoveResult
+    +EnsureDirectory(path) OpResult
+    +SafeRemoveDirectory(path) OpResult
+  }
+  class PlanItem {
+    +FolderSpec Spec
+    +string Current
+    +string Target
+    +string RegistryPayload
+    +bool Same
+    +bool Merge
+    +bool RegistryOnly
+    +bool Scanned
+    +string InvalidReason
+    +Describe() string
+    +BlockingReason() string
+  }
+  class ItemOutcome {
+    +string Key
+    +string Display
+    +ItemStatus Status
+    +string Message
+    +int Files
+    +long CopiedBytes
+  }
+  class TransferReport {
+    +Notes
+    +bool Cancelled
+    +string SnapshotPath
+    +Failed() ItemOutcomeList
+    +Summary() string
+  }
+  class ITransferProgress {
+    <<interface>>
+    +Report(info)
+  }
+  class ThrottledTransferProgress
+  class IItemObserver {
+    <<interface>>
+    +OnItemStarted(index, total, item)
+    +OnItemFinished(index, total, item, outcome)
+  }
+  class IIntentJournal {
+    <<interface>>
+    +Begin(plan, snapshotPath)
+    +Mark(item, stage)
+    +Finish(item)
+    +CloseRun()
+    +Discard()
+  }
+  class IntentJournal {
+    +ReadPending(backupDir) PendingIntents
+    +UnfinishedRegistryTargets(pending) RegistryTargetSet
+  }
+  class SnapshotTrimmer {
+    <<static>>
+    +Restrict(snapshot, targets) TrimResult
+  }
+  class TransferEngine {
+    +ResolveCurrent(spec) string
+    +RegistryTargets(spec) RegistryTargetList
+    +BuildPlan(keys, root, createUserDir, userName, scan, cache) PlanItemList
+    +BuildRestorePlan(keys, scan, cache) PlanItemList
+    +ExecuteAsync(plan, progress, observer, ct) TransferReport
+    +RestoreDefaultsAsync(keys, progress, observer, ct) TransferReport
+  }
+  class UiText {
+    <<static>>
+    +DescribePlan(same, registryOnly, merge, scanned, files, bytes) string
+    +DescribePlan(item) string
+    +StageLabel(stage) string
+    +StatusLabel(status) string
+    +Summarize(done, failed, skipped, cancelled, notes) string
+    +Summarize(report) string
+    +SelectionSummary(selected, total) string
+  }
+  class ColumnFitCalculator {
+    <<static>>
+    +Columns() ColumnSpecList
+    +Fit(needs, minimums, quotas, available) intArray
+  }
+  class ShellIntegration {
+    <<static>>
+    +IsElevated() bool
+    +RelaunchAsAdmin(args) ShellOpResult
+    +AutoRestartShellEnabled(store) bool
+    +RestartExplorerAsync(ct) ShellOpResult
+    +OpenDirectory(path) ShellOpResult
+  }
+  class SingleInstanceGuard {
+    +Acquire(log, out alreadyRunning) SingleInstanceGuard
+    +Release()
+  }
+  class IAppPaths {
+    <<interface>>
+    +bool IsPortable
+    +LogDirectory
+    +BackupDirectory
+    +LogFileFor(now) string
+    +ScanFileFor(now) string
+    +SingleInstancePidFile
+  }
+  class DefaultAppPaths {
+    +Resolve(exeDirectory) DefaultAppPaths
+  }
+  class ScanReport {
+    <<static>>
+    +BuildAsync(store, ct) ScanReportResult
+    +BuildResult(engine, config, drives) ScanReportResult
+    +Build(engine, config, drives) string
+  }
+  class ScanReportResult {
+    +ToText() string
+    +WriteToFile(path) bool
+  }
+  class IAppLog {
+    <<interface>>
+    +Info(message)
+    +Warn(message)
+    +Error(message, ex)
+  }
+
+  Catalog --> FolderSpec
+  RunConfig --> Catalog
+  RegistryStore --> IRegistryBackend
+  Win32RegistryBackend ..|> IRegistryBackend
+  InMemoryRegistryBackend ..|> IRegistryBackend
+  RegistryStore --> RegistrySnapshot
+  RegistrySnapshot --> RegistryEntry
+  DestinationGuard --> PathTools
+  DestinationGuard --> Catalog
+  FsOps --> PathTools
+  FsOps --> DestinationGuard
+  FsOps --> ITransferProgress
+  DriveInventory --> PathTools
+  PlanItem --> FolderSpec
+  PlanItem ..> UiText : Describe() 摊平字段 → DescribePlan(item)
+  TransferReport ..> UiText : Summary() 计数后 → Summarize(report)
+  TransferEngine --> RegistryStore
+  TransferEngine --> IIntentJournal
+  TransferEngine --> FsOps
+  TransferEngine --> DestinationGuard
+  TransferEngine --> PlanItem
+  TransferEngine --> TransferReport
+  TransferEngine --> ITransferProgress
+  TransferEngine --> IItemObserver
+  TransferEngine --> IAppLog
+  IntentJournal ..|> IIntentJournal
+  IntentJournal --> PlanItem
+  SnapshotTrimmer --> RegistrySnapshot
+  TransferReport --> ItemOutcome
+  ThrottledTransferProgress ..|> ITransferProgress
+  ThrottledTransferProgress --> ITransferProgress
+  ShellIntegration --> RegistryStore
+  ShellIntegration --> IAppPaths
+  DefaultAppPaths ..|> IAppPaths
+  SingleInstanceGuard --> IAppPaths
+  SingleInstanceGuard --> IAppLog
+  ScanReport --> TransferEngine
+  ScanReport --> RunConfig
+  ScanReport --> RegistryStore
+  ScanReport ..> ScanReportResult
+
+  note for UiText "成对重载：原语版是唯一实现，typed 版只摊平字段。UiText.cs 是全项目唯一允许 using DirMover.Core.Engine 的根命名空间文件（§9.3 D-2）"
+  note for ScanReport "namespace DirMover.Core.Engine，独立文件 Engine/ScanReport.cs（§9.3 D-1）。Diagnostics 只依赖 BCL，不得再放一份 --scan 报告"

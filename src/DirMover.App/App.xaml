@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App.xaml —— 应用级资源合并点。
+
+  只做三件事：装 Fluent 控件资源、合入令牌、合入样式。
+  之所以把令牌与样式拆成两个 ResourceDictionary：令牌（颜色/间距/字号）是"值"，
+  样式（控件外观）是"引用值的地方"。改配色只动 Tokens.xaml，绝不会碰到布局代码。
+-->
+<Application
+    x:Class="DirMover.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:DirMover.App.Controls">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!--
+              系统强调色重定向：已迁至 Theme/Tokens.xaml 的 ThemeDictionaries（值不变）。
+              为什么不放在本文件的 ThemeDictionaries：实测 App.Resources 自身的
+              ThemeDictionaries 会被 MergedDictionaries 中 XamlControlsResources 的
+              系统强调资源压过（此处同键覆写不生效，主按钮/勾选框回落 OS 强调色）；
+              而"合并字典"内的 ThemeDictionaries（Tokens.xaml 位于 XamlControlsResources
+              之后合入）经 {ThemeResource} 查找有效——同文件里 DangerSubtleBrush 等
+              令牌即同机制实证。改配色仍只动 Tokens.xaml。
+            -->
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="ms-appx:///Theme/Tokens.xaml" />
+                <ResourceDictionary Source="ms-appx:///Theme/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!--
+              转换器必须放在应用级，不能放在页面（MainWindow 根 Grid）级。
+              原因：行模板是 DataTemplate，模板内的 {StaticResource} 在"模板加载时"解析，
+              查找链是「模板自身资源 → Application.Resources」，<b>不</b>会向上走页面可视树。
+              放页面级时编译期一切正常，运行时实例化第一行就抛 XamlParseException
+              （只报 "XAML parsing failed."，不说是哪个键找不到——极难定位）。
+            -->
+            <controls:RowStateToBackgroundConverter x:Key="RowStateToBackground" />
+            <controls:RowStateToForegroundConverter x:Key="RowStateToForeground" />
+            <controls:RowStateToStatusForegroundConverter x:Key="RowStateToStatusForeground" />
+            <controls:RowStateToOpacityConverter x:Key="RowStateToOpacity" />
+            <controls:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <controls:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+            <controls:InverseBoolConverter x:Key="InverseBool" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
