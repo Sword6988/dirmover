@@ -14,6 +14,33 @@
 
     <FontFamily x:Key="AppFontFamilyFallback">Microsoft YaHei UI</FontFamily>
 
+    <!--
+      键盘焦点环（WinUI Fluent 双线式）：外圈深色 1px、内圈白 1px，外扩 2px。
+      WPF 默认是点线矩形，观感差一代；鼠标点击不显示，只有 Tab 键出现——与 WinUI 一致。
+    -->
+    <Style x:Key="WinUIFocusVisualStyle" TargetType="Control">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Control">
+                    <Grid>
+                        <Rectangle
+                            Margin="-2"
+                            RadiusX="6"
+                            RadiusY="6"
+                            Stroke="{StaticResource TextPrimaryBrush}"
+                            StrokeThickness="1" />
+                        <Rectangle
+                            Margin="-1"
+                            RadiusX="5"
+                            RadiusY="5"
+                            Stroke="{StaticResource SurfaceBrush}"
+                            StrokeThickness="1" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ============================================================ 文本 -->
 
     <Style x:Key="TableHeaderTextStyle" TargetType="TextBlock">
@@ -53,6 +80,7 @@
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource WinUIFocusVisualStyle}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -162,6 +190,7 @@
         <Setter Property="Padding" Value="4,2" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource WinUIFocusVisualStyle}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -193,29 +222,39 @@
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource WinUIFocusVisualStyle}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
                     <StackPanel Background="Transparent" Orientation="Horizontal">
                         <Border
                             x:Name="Box"
-                            Width="18"
-                            Height="18"
+                            Width="20"
+                            Height="20"
                             VerticalAlignment="Center"
                             Background="{StaticResource ControlFillBrush}"
                             BorderBrush="{StaticResource ControlStrokeBrush}"
                             BorderThickness="1"
-                            CornerRadius="4">
+                            CornerRadius="4"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="BoxScale" ScaleX="1" ScaleY="1" />
+                            </Border.RenderTransform>
                             <Path
                                 x:Name="Check"
-                                Width="10"
-                                Height="8"
-                                Data="M 0,4 L 3.5,7.5 L 10,0"
+                                Width="11"
+                                Height="9"
+                                Data="M 0,4.5 L 4,8 L 11,0"
+                                RenderTransformOrigin="0.5,0.5"
                                 Stroke="{StaticResource OnAccentTextBrush}"
                                 StrokeEndLineCap="Round"
                                 StrokeStartLineCap="Round"
                                 StrokeThickness="2"
-                                Visibility="Collapsed" />
+                                Visibility="Collapsed">
+                                <Path.RenderTransform>
+                                    <ScaleTransform x:Name="CheckScale" ScaleX="0.4" ScaleY="0.4" />
+                                </Path.RenderTransform>
+                            </Path>
                         </Border>
                         <ContentPresenter
                             x:Name="Label"
@@ -227,6 +266,76 @@
                             <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}" />
                             <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
                             <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <!-- 勾号 120ms 弹出：WinUI CheckBox 的勾有同样的出现动画 -->
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="CheckScale"
+                                            Storyboard.TargetProperty="ScaleX"
+                                            From="0.4"
+                                            To="1"
+                                            Duration="0:0:0.12" />
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="CheckScale"
+                                            Storyboard.TargetProperty="ScaleY"
+                                            From="0.4"
+                                            To="1"
+                                            Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="CheckScale"
+                                            Storyboard.TargetProperty="ScaleX"
+                                            To="0.4"
+                                            Duration="0:0:0.01" />
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="CheckScale"
+                                            Storyboard.TargetProperty="ScaleY"
+                                            To="0.4"
+                                            Duration="0:0:0.01" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <!-- WinUI 按下时勾选框整体微缩到 92%（转换器不能被 Setter 指名，走动画） -->
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="BoxScale"
+                                            Storyboard.TargetProperty="ScaleX"
+                                            To="0.92"
+                                            Duration="0:0:0.06" />
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="BoxScale"
+                                            Storyboard.TargetProperty="ScaleY"
+                                            To="0.92"
+                                            Duration="0:0:0.06" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="BoxScale"
+                                            Storyboard.TargetProperty="ScaleX"
+                                            To="1"
+                                            Duration="0:0:0.06" />
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="BoxScale"
+                                            Storyboard.TargetProperty="ScaleY"
+                                            To="1"
+                                            Duration="0:0:0.06" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource ControlStrokeHoverBrush}" />
@@ -288,15 +397,153 @@
 
     <!-- ============================================================ 下拉框 -->
 
-    <Style x:Key="AppComboBoxStyle" TargetType="ComboBox">
-        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+    <!--
+      WinUI 3 ComboBox 浅色档：#FBFBFB 底、4px 圆角、右缘字形箭头、下拉是 8px 圆角浮层。
+      WPF 原生 ComboBox 观感差一代（立体边框、方箭头、方角浮层），必须整模板重绘。
+    -->
+    <Style x:Key="AppComboBoxItemStyle" TargetType="ComboBoxItem">
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-        <Setter Property="Background" Value="{StaticResource ControlFillBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border
+                        x:Name="Chrome"
+                        Margin="4,2"
+                        Padding="{TemplateBinding Padding}"
+                        Background="Transparent"
+                        CornerRadius="4">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource RowHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentSubtleBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="AppComboBoxStyle" TargetType="ComboBox">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="Background" Value="{StaticResource ComboBoxFillBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource ControlStrokeBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="10,6" />
         <Setter Property="Height" Value="34" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="MaxDropDownHeight" Value="320" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource WinUIFocusVisualStyle}" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource AppComboBoxItemStyle}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <Border
+                            x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource ComboBoxCornerRadius}" />
+
+                        <Grid Margin="{TemplateBinding BorderThickness}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="32" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter
+                                Grid.Column="0"
+                                Margin="10,0,0,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                IsHitTestVisible="False"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" />
+                            <TextBlock
+                                Grid.Column="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets, Segoe Fluent Icons"
+                                FontSize="10"
+                                Foreground="{StaticResource ComboBoxChevronBrush}"
+                                IsHitTestVisible="False"
+                                Text="&#xE70D;" />
+                        </Grid>
+
+                        <!-- 透明命中层：整块可点，Tab 焦点仍由 ComboBox 本体持有 -->
+                        <ToggleButton
+                            ClickMode="Press"
+                            Focusable="False"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Rectangle Fill="Transparent" />
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+
+                        <Popup
+                            x:Name="PART_Popup"
+                            AllowsTransparency="True"
+                            Focusable="False"
+                            IsOpen="{TemplateBinding IsDropDownOpen}"
+                            Placement="Bottom"
+                            PopupAnimation="Fade">
+                            <!-- MinWidth 取组合框实际宽：WinUI 的浮层与控件同宽，不贴内容缩窄 -->
+                            <Border
+                                Margin="0,4,0,0"
+                                MinWidth="{TemplateBinding ActualWidth}"
+                                Background="{StaticResource SurfaceBrush}"
+                                BorderBrush="{StaticResource CardStrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource ComboBoxPopupCornerRadius}">
+                                <Border.Effect>
+                                    <DropShadowEffect
+                                        BlurRadius="12"
+                                        Direction="270"
+                                        Opacity="0.14"
+                                        ShadowDepth="2" />
+                                </Border.Effect>
+                                <ScrollViewer
+                                    Margin="0,4"
+                                    MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                    VerticalScrollBarVisibility="Auto">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource ComboBoxFillHoverBrush}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource ControlStrokeHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDropDownOpen" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource ComboBoxFillPressedBrush}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource ControlStrokeHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.55" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ============================================================ 进度条 -->
@@ -342,14 +589,16 @@
     </Style>
 
     <!-- 只给纵向滚动条用：模板里 Track 的方向反转是按纵向写死的，横向条套上会错乱，
-         故不给 ScrollBar 设隐式样式，由使用处按需引用。 -->
+         故不给 ScrollBar 设隐式样式，由使用处按需引用。
+         悬停时 8→12px 展开 + 轨道显底：WinUI 3 滚动条同样有悬停展开，只是它平时还会
+         再收窄——平时隐藏需要劫持 ScrollViewer 模板，收益低，不做。 -->
     <Style x:Key="SlimVerticalScrollBarStyle" TargetType="ScrollBar">
         <Setter Property="Width" Value="8" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
-                    <Grid Background="Transparent">
+                    <Grid x:Name="Root" Background="Transparent">
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.Thumb>
                                 <Thumb Style="{StaticResource SlimScrollBarThumb}" />
@@ -362,6 +611,12 @@
                             </Track.DecreaseRepeatButton>
                         </Track>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Width" Value="12" />
+                            <Setter TargetName="Root" Property="Background" Value="{StaticResource RowHoverBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

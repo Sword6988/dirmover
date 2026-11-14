@@ -126,7 +126,8 @@ public sealed class IntentJournal : IIntentJournal
             return new NoopIntentJournal();
         }
 
-        return new IntentJournal(backupDir, safeLog);
+        // net48 引用程序集缺 NotNullWhen(false)：IsNullOrWhiteSpace 不收窄参数。
+        return new IntentJournal(backupDir!, safeLog);
     }
 
     /// <inheritdoc />
@@ -285,12 +286,19 @@ public sealed class IntentJournal : IIntentJournal
             {
                 foreach (TargetDto target in item.Registry)
                 {
-                    if (target is null || string.IsNullOrWhiteSpace(target.SubKey) || target.Name is null)
+                    if (target is null || target.Name is null)
                     {
                         return new PendingIntents(Array.Empty<PendingIntent>(), "意图日志结构异常（注册表目标缺少子键或值名）");
                     }
 
-                    targets.Add(new RegistryTarget(target.SubKey, target.Name));
+                    // SubKey 用显式空判：net48 引用程序集缺 NotNullWhen(false)，IsNullOrWhiteSpace 不收窄。
+                    string subKey = target.SubKey ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(subKey))
+                    {
+                        return new PendingIntents(Array.Empty<PendingIntent>(), "意图日志结构异常（注册表目标缺少子键或值名）");
+                    }
+
+                    targets.Add(new RegistryTarget(subKey, target.Name));
                 }
             }
 

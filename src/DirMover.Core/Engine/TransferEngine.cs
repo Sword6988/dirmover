@@ -211,9 +211,12 @@ public sealed class TransferEngine
             item.TargetExists = PathTools.Exists(target);
             item.Merge = item.TargetExists && !item.Same;
 
-            if (!string.IsNullOrWhiteSpace(_lastResolveError))
+            // 拷到局部 string：字段不做流收窄，net48 引用程序集又缺 NotNullWhen 注解，
+            // 直接传 _lastResolveError 会报 CS8604（net8 侧无感，行为不变）。
+            string resolveError = _lastResolveError ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(resolveError))
             {
-                item.InvalidReason = UiText.RegistryReadFailed(_lastResolveError);
+                item.InvalidReason = UiText.RegistryReadFailed(resolveError);
             }
 
             if (item.InvalidReason.Length == 0 && !item.Same && item.NeedsMove)
@@ -290,9 +293,12 @@ public sealed class TransferEngine
             item.Merge = item.TargetExists && !item.Same;
             item.RegistryOnly = !string.IsNullOrWhiteSpace(current) && !PathTools.Exists(current);
 
-            if (!string.IsNullOrWhiteSpace(_lastResolveError))
+            // 拷到局部 string：字段不做流收窄，net48 引用程序集又缺 NotNullWhen 注解，
+            // 直接传 _lastResolveError 会报 CS8604（net8 侧无感，行为不变）。
+            string resolveError = _lastResolveError ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(resolveError))
             {
-                item.InvalidReason = UiText.RegistryReadFailed(_lastResolveError);
+                item.InvalidReason = UiText.RegistryReadFailed(resolveError);
             }
             else if (!item.RegistryOnly && !item.Same && item.NeedsMove)
             {

@@ -218,7 +218,9 @@ internal sealed class WpfDialogService : IDialogService
         {
             var completion = new TaskCompletionSource<DialogButton>();
 
-            _owner.Dispatcher.BeginInvoke(new Action(() =>
+            // 刻意的 fire-and-forget：真实完成信号走 completion（TaskCompletionSource），
+            // 在下方 await。丢弃返回值消除 CS4014。
+            _ = _owner.Dispatcher.BeginInvoke(new Action(() =>
             {
                 try
                 {

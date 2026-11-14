@@ -97,6 +97,14 @@
     <CornerRadius x:Key="CardCornerRadius">8</CornerRadius>
     <CornerRadius x:Key="ButtonCornerRadius">6</CornerRadius>
     <CornerRadius x:Key="EmptyStateBadgeCornerRadius">21</CornerRadius>
+    <CornerRadius x:Key="ComboBoxCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="ComboBoxPopupCornerRadius">8</CornerRadius>
+
+    <!-- ============================================================ 下拉框（WinUI 3 ComboBox 浅色档） -->
+    <SolidColorBrush x:Key="ComboBoxFillBrush">#FBFBFB</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxFillHoverBrush">#F0F2F3</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxFillPressedBrush">#EBEEEF</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxChevronBrush">#5B5F65</SolidColorBrush>
 
     <!-- ============================================================ 常用 Thickness -->
     <Thickness x:Key="PagePadding">24,20,24,16</Thickness>
@@ -109,8 +117,10 @@
     <Thickness x:Key="CardBorderThickness">1</Thickness>
     <Thickness x:Key="EmptyStateGap">0,36,0,16</Thickness>
 
-    <!-- 字体族：与 WinUI 版同一选择（中文用微软雅黑，西文 Segoe UI 由系统回退接管） -->
-    <FontFamily x:Key="AppFontFamily">Microsoft YaHei UI, Segoe UI</FontFamily>
-    <FontFamily x:Key="MonoFontFamily">Consolas, Cascadia Mono, Microsoft YaHei UI</FontFamily>
+    <!-- 字体族：与 WinUI 版同一选择。Latin 优先走 Win11 的 Segoe UI Variable（数字更紧凑，
+         与便携版一致），Win10 上逐字回退到 Segoe UI；中文两个字族都没有 → 雅黑接管。
+         **不嵌字体**：一个 CJK ttf 就是 10~20 MB，与"单文件"的体积承诺冲突。 -->
+    <FontFamily x:Key="AppFontFamily">Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="MonoFontFamily">Cascadia Mono, Consolas, Microsoft YaHei UI</FontFamily>
 
 </ResourceDictionary>

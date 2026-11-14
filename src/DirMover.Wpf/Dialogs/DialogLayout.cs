@@ -106,12 +106,14 @@ internal static class DialogLayout
     private static List<string> SplitParagraphs(string? text)
     {
         var paragraphs = new List<string>();
-        if (string.IsNullOrWhiteSpace(text))
+        // net48 引用程序集缺 NotNullWhen(false)：先落成非空局部再判空，下游 Split 不再报 CS8602。
+        string value = text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
         {
             return paragraphs;
         }
 
-        foreach (string raw in text.Split(ParagraphSeparators, StringSplitOptions.None))
+        foreach (string raw in value.Split(ParagraphSeparators, StringSplitOptions.None))
         {
             string normalized = raw.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
             if (normalized.Length > 0)

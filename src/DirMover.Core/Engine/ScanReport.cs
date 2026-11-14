@@ -163,7 +163,8 @@ public sealed class ScanReportResult
 
     private static int DisplayWidth(string? text)
     {
-        if (string.IsNullOrEmpty(text))
+        // 显式判空：net48 引用程序集缺 NotNullWhen(false)，IsNullOrEmpty 不收窄参数。
+        if (text is null || text.Length == 0)
         {
             return 0;
         }

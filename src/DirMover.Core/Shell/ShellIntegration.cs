@@ -250,11 +250,15 @@ public static class ShellIntegration
     /// <param name="arguments">命令行参数（原样传给新实例）。</param>
     public static ShellOpResult RelaunchAsAdmin(string arguments)
     {
-        string? exePath = Compat.ProcessPath();
-        if (string.IsNullOrWhiteSpace(exePath))
+        string? exePathCandidate = Compat.ProcessPath();
+        if (string.IsNullOrWhiteSpace(exePathCandidate))
         {
             return new ShellOpResult(false, UiText.ElevationFailed(0));
         }
+
+        // net48 引用程序集缺 NotNullWhen(false)：IsNullOrWhiteSpace 不收窄局部量，
+        // 下一行直接传 exePathCandidate 会报 CS8604（net8 侧本就干净）。
+        string exePath = exePathCandidate!;
 
         var info = new NativeMethods.ShellExecuteInfo
         {

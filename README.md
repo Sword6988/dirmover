@@ -205,9 +205,9 @@ dotnet test tests\DirMover.Core.Tests   →  268 通过 / 0 失败 / 0 跳过（
 **WPF 单文件版实测（2026-11-14，本机）**：
 
 ```
-dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,001,984 B   ← 目录内只有它（无 exe.config、无 pdb）
-dist\DirMover-3.0.1-wpf-net48.zip              594,799 B
-exe SHA-256  9f18d75397c880185534fb2011dd2849ccc3e7bf6e961986c88b94f68ffab81f
+dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,006,592 B   ← 目录内只有它（无 exe.config、无 pdb）
+dist\DirMover-3.0.1-wpf-net48.zip              596,529 B
+exe SHA-256  9e79885e89410c067dcc1004f67a0577e8a621ec7126e91c28e33edea47d6596
 ```
 
 `Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
@@ -219,6 +219,8 @@ exe SHA-256  9f18d75397c880185534fb2011dd2849ccc3e7bf6e961986c88b94f68ffab81f
 - **`Window.Loaded` 在 `Show()` 之后订阅不会触发**。WinUI 版是 `Loaded` 里挂首次扫描，WPF 版照抄后 `--version` 弹窗永不出现（日志停在"已挂 Loaded"）。改用 `ContentRendered`，并在代码里留了注释说明语义差异。
 - **无边框自绘弹窗会先按最小尺寸量一遍**。首版弹窗宽到 1440 px、等宽报告区还居中折行。修法是 `SizeToContent="WidthAndHeight"` + 显式给 `BodyScroll.Width`/`MaxHeight`，等宽块用只读 `TextBox`（`TextBlock` 在 WPF 里不支持选中）设 `TextWrapping.NoWrap` + `TextAlignment.Left`，横向滚动条自己承担溢出。
 - **`Closing` 管线里不能再调 `Close()`**。关窗收尾是"先 `e.Cancel = true`，再 `await RequestCloseAsync()`，然后 `Close()`"——但 `await` 的续体经 Dispatcher 恢复时，触发本次 Closing 的那次 Close 还没走完，此时 `Close()` 被 `VerifyNotClosing` 拒绝，抛 `InvalidOperationException` 并触发全局异常弹窗（`startup_error.txt` 有实测记录）。修法：最终关闭延到下一轮 Dispatcher（`CloseDeferred`），那是一次全新的 Close 调用，放行标志已置位。回归脚本 `out/close_test_wpf.py`：WM_CLOSE → 退出码 0、无错误日志。
+
+**视觉对齐轮（2026-11-14）**：界面再向便携版靠了一档——ComboBox 整模板重绘（#FBFBFB 扁平底、4px 圆角、字形箭头、8px 圆角浮层与控件同宽）、勾选框 20px + 勾号弹出动画 + 按下 92% 微缩、键盘焦点环改成 Fluent 双线式、滚动条悬停 8→12px 展开、字体回退链改 `Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI`（Win11 数字与便携版同款，Win10 回落 Segoe UI）。**Mica 试过又撤了**：便携版本身没有 Mica（纯色浅灰底），而 WPF 端做系统 backdrop 需要 `DwmExtendFrameIntoClientArea(-1)` + 透明背景，实测会透出桌面其它窗口内容且文字有合成重影——偏离便携版观感，不做。这一轮全部改动合计 **+4.6 KB**（exe 0.96→0.96 MiB 级），对比图见 `docs/ui-redesign-screenshots/wpf-aligned-main.png` 与 `wpf-aligned-combo-open.png`。顺带修掉了只在 net48 目标暴露的一批可空性警告（net48 引用程序集缺 `NotNullWhen` 注解，`IsNullOrEmpty` 不收窄——判空改写成对两个目标都成立的显式形式，net8 行为不变，268 测全绿）。
 
 12 条数据安全红线：**10 条强覆盖 / 2 条弱覆盖 / 0 条无覆盖**。
 

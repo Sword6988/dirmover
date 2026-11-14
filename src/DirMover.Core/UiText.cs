@@ -710,7 +710,9 @@ public static class UiText
     /// <param name="targetRoot">目标根目录。</param>
     public static string ConfirmTransferBody(int count, string? scaleSummary, string targetRoot)
     {
-        string scale = string.IsNullOrWhiteSpace(scaleSummary) ? ScaleUnavailable : scaleSummary;
+        // net48 引用程序集缺 NotNullWhen(false)：IsNullOrWhiteSpace 不收窄参数，
+        // false 分支需要显式 !（net8 侧本就干净，加 ! 无行为影响）。
+        string scale = string.IsNullOrWhiteSpace(scaleSummary) ? ScaleUnavailable : scaleSummary!;
         return $"即将转移 {count} 项{scale}。" + Environment.NewLine +
                $"目标根目录：{targetRoot}" + Environment.NewLine +
                "迁移过程会先复制并逐文件校验，校验通过后才更新注册表并删除源目录；" +

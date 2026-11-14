@@ -609,11 +609,13 @@ public static partial class FsOps
         FileSystemInfo info = isDirectory ? new DirectoryInfo(source) : new FileInfo(source);
 
         string? rawTarget = Compat.GetLinkTarget(info);
-        if (string.IsNullOrEmpty(rawTarget))
+        if (rawTarget is null || rawTarget.Length == 0)
         {
             throw new IOException("源条目已不是链接");
         }
 
+        // 不用 string.IsNullOrEmpty 收窄：net48 引用程序集没有 NotNullWhen 注解，
+        // 同一段代码在 net8 编译干净、在 net48 会报 CS8600/8604（显式判空对两个目标都成立）。
         string resolved = rawTarget;
         if (!Path.IsPathRooted(resolved))
         {
