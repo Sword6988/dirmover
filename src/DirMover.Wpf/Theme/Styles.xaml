@@ -359,7 +359,7 @@
         </Setter>
     </Style>
 
-    <!-- 表格行首勾选：去掉内容留白，只留 18px 的框 -->
+    <!-- 表格行首勾选：去掉内容留白，只留 20px 的框（与 WinUI CheckBox 同尺寸） -->
     <Style x:Key="RowCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource AppCheckBoxStyle}">
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -588,38 +588,89 @@
         </Setter>
     </Style>
 
-    <!-- 只给纵向滚动条用：模板里 Track 的方向反转是按纵向写死的，横向条套上会错乱，
-         故不给 ScrollBar 设隐式样式，由使用处按需引用。
-         悬停时 8→12px 展开 + 轨道显底：WinUI 3 滚动条同样有悬停展开，只是它平时还会
-         再收窄——平时隐藏需要劫持 ScrollViewer 模板，收益低，不做。 -->
-    <Style x:Key="SlimVerticalScrollBarStyle" TargetType="ScrollBar">
-        <Setter Property="Width" Value="8" />
+    <!--
+      两套模板（纵 / 横）而不是凑一个：Track 的 IsDirectionReversed 与翻页命令
+      是按方向写死的，用同一份模板套横向条会得到"滑块方向反了、翻页键无效"。
+      悬停 8→12px 展开的取值与 WinUI 3 一致；平时不自动收窄（那要劫持
+      ScrollViewer 的模板），收益低于复杂度。
+    -->
+    <ControlTemplate x:Key="SlimVerticalScrollBarTemplate" TargetType="ScrollBar">
+        <Grid x:Name="Root" Background="Transparent">
+            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.Thumb>
+                    <Thumb Style="{StaticResource SlimScrollBarThumb}" />
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" />
+                </Track.IncreaseRepeatButton>
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" />
+                </Track.DecreaseRepeatButton>
+            </Track>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Root" Property="Background" Value="{StaticResource RowHoverBrush}" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="SlimHorizontalScrollBarTemplate" TargetType="ScrollBar">
+        <Grid x:Name="Root" Background="Transparent">
+            <Track x:Name="PART_Track" IsDirectionReversed="False">
+                <Track.Thumb>
+                    <Thumb Style="{StaticResource SlimScrollBarThumb}" />
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageRightCommand" Opacity="0" />
+                </Track.IncreaseRepeatButton>
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" />
+                </Track.DecreaseRepeatButton>
+            </Track>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Root" Property="Background" Value="{StaticResource RowHoverBrush}" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <!--
+      隐式样式（全应用）：列表、下拉浮层、弹窗正文、等宽报告区都走这一份，
+      否则每一处都要单独引用，漏一处就落回 WPF 经典滚动条（两侧箭头 + 立体滑块）。
+      纵向/横向由 Orientation 分支，宽度/高度各自 8 → 悬停 12。
+    -->
+    <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ScrollBar">
-                    <Grid x:Name="Root" Background="Transparent">
-                        <Track x:Name="PART_Track" IsDirectionReversed="True">
-                            <Track.Thumb>
-                                <Thumb Style="{StaticResource SlimScrollBarThumb}" />
-                            </Track.Thumb>
-                            <Track.IncreaseRepeatButton>
-                                <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" />
-                            </Track.IncreaseRepeatButton>
-                            <Track.DecreaseRepeatButton>
-                                <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" />
-                            </Track.DecreaseRepeatButton>
-                        </Track>
-                    </Grid>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Width" Value="12" />
-                            <Setter TargetName="Root" Property="Background" Value="{StaticResource RowHoverBrush}" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Width" Value="Auto" />
+        <Setter Property="Height" Value="Auto" />
+        <Setter Property="Template" Value="{StaticResource SlimVerticalScrollBarTemplate}" />
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Vertical">
+                <Setter Property="Width" Value="8" />
+            </Trigger>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Height" Value="8" />
+                <Setter Property="Template" Value="{StaticResource SlimHorizontalScrollBarTemplate}" />
+            </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True" />
+                    <Condition Property="Orientation" Value="Vertical" />
+                </MultiTrigger.Conditions>
+                <Setter Property="Width" Value="12" />
+            </MultiTrigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True" />
+                    <Condition Property="Orientation" Value="Horizontal" />
+                </MultiTrigger.Conditions>
+                <Setter Property="Height" Value="12" />
+            </MultiTrigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ============================================================ 提示气泡 -->

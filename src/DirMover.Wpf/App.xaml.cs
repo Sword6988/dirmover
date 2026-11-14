@@ -49,6 +49,19 @@ public partial class App : Application
     private bool _cliStarted;
     private int _unhandledCount;
 
+    /// <summary>构造应用实例，加载资源字典。</summary>
+    /// <remarks>
+    /// WPF 侧<b>没有</b>运行期绑定失败诊断：WinUI 的 <c>DebugSettings.BindingFailed</c> 在 WPF
+    /// 没有等价物，而 <c>PresentationTraceSources</c> 的开关必须在 app.config 里声明才真正生效
+    /// （实测：构造期设 <c>Switch.Level = All</c> + 挂 listener，仍然一条事件都收不到）。
+    /// 单文件承诺禁止 exe.config，所以改用确定性的静态校验：<c>tools/check-bindings.py</c>
+    /// 解析 XAML 里每个绑定路径并与 C# 属性表对照，路径写错在提交前就报错。
+    /// </remarks>
+    public App()
+    {
+        InitializeComponent();
+    }
+
     /// <summary>启动编排。</summary>
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -115,13 +128,23 @@ public partial class App : Application
                 // 用 ContentRendered 而不是 Loaded：WPF 的 Window.Loaded 在"Show 之后才订阅"
                 // 的时序下实测不触发（WinUI 的 Window.Loaded 语义是渲染完成），
                 // ContentRendered 在首帧绘制后触发，弹窗所需的宿主状态此时一定就绪。
-                _window.ContentRendered += async (_, _) => await RunCliAsync(dialogs, store);
+                // 订阅后立刻退订：该事件在窗口被还原/重绘时可能再次触发，而 CLI 只能跑一次。
+                EventHandler? onRendered = null;
+                onRendered = async (_, _) =>
+                {
+                    _window.ContentRendered -= onRendered;
+                    await RunCliAsync(dialogs, store);
+                };
+                _window.ContentRendered += onRendered;
             }
             else if (!_args.DryRun)
             {
                 // 启动期遗留事务检查：等窗口先画出来再查（回滚会写注册表，试运行跳过）。
-                _window.ContentRendered += async (_, _) =>
+                EventHandler? onRendered = null;
+                onRendered = async (_, _) =>
                 {
+                    _window.ContentRendered -= onRendered;
+
                     try
                     {
                         await Task.Delay(Catalog.PendingIntentDelay);
@@ -133,6 +156,7 @@ public partial class App : Application
                         _log.Error("启动期遗留事务检查失败", ex);
                     }
                 };
+                _window.ContentRendered += onRendered;
             }
 
             return true;
@@ -168,7 +192,7 @@ public partial class App : Application
             if (_args.Scan)
             {
                 await RunScanAsync(dialogs, store);
-                Environment.ExitCode = ExitOk;
+                ExitAfterCli(ExitOk);
                 return;
             }
 
@@ -176,15 +200,31 @@ public partial class App : Application
             {
                 string title = _args.Unknown.Count > 0 ? UiText.DialogCannotStart : UiText.WindowTitle;
                 await dialogs.ShowTextAsync(title, BuildHelpText(_args.Unknown), showOpenLogButton: true);
-                Environment.ExitCode = _args.Unknown.Count > 0 ? ExitEnvironment : ExitOk;
+                ExitAfterCli(_args.Unknown.Count > 0 ? ExitEnvironment : ExitOk);
             }
         }
         catch (Exception ex)
         {
             _log.Error("CLI 路径失败", ex);
             WriteStartupError(ex);
-            Environment.ExitCode = ExitUnexpected;
+            ExitAfterCli(ExitUnexpected);
         }
+    }
+
+    /// <summary>
+    /// 只读 CLI 跑完的收尾：落退出码 + 关掉宿主窗口，让进程真的结束。
+    /// </summary>
+    /// <param name="exitCode">约定的退出码。</param>
+    /// <remarks>
+    /// 只设 <see cref="Environment.ExitCode"/> 是不够的：主窗口还开着，
+    /// <see cref="Application.Run"/> 就不会返回，<c>DirMover.exe --version</c> 会一直挂着
+    /// （2026-11-14 实测：关掉弹窗后进程仍是 <c>STILL-RUNNING</c>，主窗口 980×760 还在）。
+    /// 命令行参数的价值恰恰在"能放进脚本、跑完就退"，所以这里必须把窗口关掉。
+    /// </remarks>
+    private void ExitAfterCli(int exitCode)
+    {
+        Environment.ExitCode = exitCode;
+        _window?.CloseForCliExit();
     }
 
     private async Task RunScanAsync(IDialogService dialogs, RegistryStore store)
@@ -244,6 +284,11 @@ public partial class App : Application
         WriteStartupError(e.Exception);
         _log.Error("未处理异常", e.Exception);
 
+        // 与 WinUI 版同一条口径：出现未处理异常即为"未预期错误"，进程最终退出码必须是 4。
+        // 只在 Shutdown 那条分支设的话，"第一次异常后继续用、最后正常关窗"会退出 0，
+        // 那条承诺（README：4 = 未预期错误）就落空了。
+        Environment.ExitCode = ExitUnexpected;
+
         if (ordinal >= MaxUnhandledExceptions)
         {
             // 进程活着但界面已经坏了是更糟的状态：没有提示、点哪都没反应。
@@ -278,16 +323,29 @@ public partial class App : Application
     }
 
     private void WriteStartupError(Exception? ex)
-    {
-        if (ex is null)
+    {        if (ex is null)
         {
             return;
         }
 
+        // _paths 为 null 意味着"连落点都没算出来"（DefaultAppPaths.Resolve 抛了）——
+        // 这个兜底恰恰要在那种时候工作，所以不能直接解引用。走临时目录。
+        IAppPaths? paths = _paths;
+        string target;
         try
         {
+            target = paths is null
+                ? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DirMover-startup_error.txt")
+                : paths.StartupErrorFile;
+
+            string? directory = System.IO.Path.GetDirectoryName(target);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                System.IO.Directory.CreateDirectory(directory);
+            }
+
             System.IO.File.WriteAllText(
-                _paths.StartupErrorFile,
+                target,
                 $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}{Environment.NewLine}{ex}");
         }
         catch (Exception inner)
@@ -300,9 +358,7 @@ public partial class App : Application
     {
         _guard?.Release();
         _guard = null;
-    }
-
-    private void ReacquireSingleInstance()
+    }    private void ReacquireSingleInstance()
     {
         _guard = SingleInstanceGuard.Acquire(_paths, _log, out _);
     }

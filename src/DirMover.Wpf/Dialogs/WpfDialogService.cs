@@ -193,7 +193,14 @@ internal sealed class WpfDialogService : IDialogService
     private async Task<bool> ShowYesNoAsync(string title, string body)
     {
         StackPanel host = DialogLayout.CreateBody(body);
-        DialogButton result = await ShowAsync(title, host, UiText.ButtonYes, null, UiText.ButtonNo, false);
+        DialogButton result = await ShowAsync(
+            title,
+            host,
+            UiText.ButtonYes,
+            null,
+            UiText.ButtonNo,
+            false,
+            defaultButton: DialogButton.Primary);
         return result == DialogButton.Primary;
     }
 
@@ -204,7 +211,8 @@ internal sealed class WpfDialogService : IDialogService
         string? primaryText,
         string? secondaryText,
         string? closeText,
-        bool highlightLastParagraph)
+        bool highlightLastParagraph,
+        DialogButton defaultButton = DialogButton.Close)
     {
         if (!_owner.IsLoaded || _owner.Dispatcher.HasShutdownStarted)
         {
@@ -218,38 +226,49 @@ internal sealed class WpfDialogService : IDialogService
         {
             var completion = new TaskCompletionSource<DialogButton>();
 
-            // 刻意的 fire-and-forget：真实完成信号走 completion（TaskCompletionSource），
-            // 在下方 await。丢弃返回值消除 CS4014。
-            _ = _owner.Dispatcher.BeginInvoke(new Action(() =>
+            // 排队本身也可能失败（Dispatcher 正在关闭）：那属于"弹不出来"，按未选择处理，
+            // 不能让一次 Failed 的 BeginInvoke 变成未处理异常再弹一个崩溃告知框。
+            try
             {
-                try
+                // 刻意的 fire-and-forget：真实完成信号走 completion（TaskCompletionSource），
+                // 在下方 await。丢弃返回值消除 CS4014。
+                _ = _owner.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    DialogLayout.FitToWindow(body as FrameworkElement ?? new StackPanel(), _owner.Content is FrameworkElement content
-                        ? new Size(content.ActualWidth, content.ActualHeight)
-                        : new Size(_owner.Width, _owner.Height));
-
-                    var dialog = new DialogWindow
+                    try
                     {
-                        Owner = _owner,
-                    };
+                        DialogLayout.FitToWindow(body as FrameworkElement ?? new StackPanel(), _owner.Content is FrameworkElement content
+                            ? new Size(content.ActualWidth, content.ActualHeight)
+                            : new Size(_owner.Width, _owner.Height));
 
-                    dialog.Configure(
-                        title,
-                        body,
-                        primaryText,
-                        secondaryText,
-                        closeText,
-                        DialogLayout.PreferredWidth());
+                        var dialog = new DialogWindow
+                        {
+                            Owner = _owner,
+                        };
 
-                    dialog.ShowDialog();
-                    completion.TrySetResult(dialog.Result);
-                }
-                catch (Exception ex)
-                {
-                    _log.Error("弹窗显示失败", ex);
-                    completion.TrySetResult(DialogButton.None);
-                }
-            }));
+                        dialog.Configure(
+                            title,
+                            body,
+                            primaryText,
+                            secondaryText,
+                            closeText,
+                            DialogLayout.PreferredWidth(),
+                            defaultButton);
+
+                        dialog.ShowDialog();
+                        completion.TrySetResult(dialog.Result);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Error("弹窗显示失败", ex);
+                        completion.TrySetResult(DialogButton.None);
+                    }
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is TaskCanceledException)
+            {
+                _log.Error($"弹窗排队失败：{title}", ex);
+                return DialogButton.None;
+            }
 
             return await completion.Task;
         }

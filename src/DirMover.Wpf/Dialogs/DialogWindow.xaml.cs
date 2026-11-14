@@ -34,6 +34,7 @@ public partial class DialogWindow : Window
 {
     private Button? _primary;
     private Button? _secondary;
+    private DialogButton _defaultButton = DialogButton.Close;
 
     /// <summary>构造。</summary>
     public DialogWindow()
@@ -55,13 +56,21 @@ public partial class DialogWindow : Window
     /// <param name="secondaryText">次按钮文案；null 表示不显示。</param>
     /// <param name="closeText">关闭按钮文案；null 表示不显示。</param>
     /// <param name="width">内容宽度（正文阅读宽度）。</param>
+    /// <param name="defaultButton">回车键触发哪颗按钮。</param>
+    /// <remarks>
+    /// 回车语义必须由调用方显式指定，不能一律"回车=主按钮"：
+    /// "打开日志目录 + 确定"这类弹窗里回车会去开资源管理器，
+    /// "回滚 / 忽略 / 取消"这类弹窗里回车会直接执行破坏性操作。
+    /// 只有真正的二选一确认（是 / 否）才该把回车绑到主按钮。
+    /// </remarks>
     internal void Configure(
         string title,
         UIElement body,
         string? primaryText,
         string? secondaryText,
         string? closeText,
-        double width)
+        double width,
+        DialogButton defaultButton = DialogButton.Close)
     {
         Title = title;
         TitleText.Text = title;
@@ -70,6 +79,7 @@ public partial class DialogWindow : Window
         BodyScroll.Width = width;
         BodyScroll.MaxHeight = 440;
         BodyScroll.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        _defaultButton = defaultButton;
 
         if (closeText is not null)
         {
@@ -127,16 +137,13 @@ public partial class DialogWindow : Window
 
         if (e.Key == Key.Enter)
         {
-            // 主按钮优先（"是"）；只有关闭键时回车=确定。
-            if (_primary is not null)
+            // 回车只触发调用方声明的默认按钮；默认是"关闭/确定"，不是"主按钮"。
+            Finish(_defaultButton switch
             {
-                Finish(DialogButton.Primary);
-            }
-            else
-            {
-                Finish(DialogButton.Close);
-            }
-
+                DialogButton.Primary when _primary is not null => DialogButton.Primary,
+                DialogButton.Secondary when _secondary is not null => DialogButton.Secondary,
+                _ => DialogButton.Close,
+            });
             e.Handled = true;
         }
     }

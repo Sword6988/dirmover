@@ -24,11 +24,16 @@
   <!--
     PerMonitorV2：多显示器不同缩放时，表格列宽按 DIP 计算，只有 DPI 感知正确时
     1 DIP 才等于 1/96 英寸；否则在 125%/150% 屏上文字会发虚。
+    longPathAware：迁移目标可能是深目录（≥260 字符）。WinUI 版清单一直有这条，
+    本版此前漏了——而这一条在 .NET Framework 上比在 .NET 8 上更关键：
+    .NET 8 会对超长路径自动补 \\?\ 前缀，net48 不会，没有 longPathAware 时
+    超过 MAX_PATH 的复制/删除会直接抛 PathTooLongException。
   -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
       <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>
 </assembly>

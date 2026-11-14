@@ -112,6 +112,9 @@ public partial class MainWindow : Window
     /// <remarks>
     /// 不用 <c>TextBlock.Measure</c>：脱离可视树的 TextBlock 拿不到窗口的字体设置，
     /// 量出来会偏小；FormattedText 可以显式指定字体族/字号/字重，结果与渲染一致。
+    /// 字体族必须与界面同一份令牌（<c>AppFontFamily</c>）：写死成"Microsoft YaHei UI"
+    /// 时，Latin 部分实际渲染用的是 Segoe UI Variable（更窄），量出来的宽度会系统性偏大，
+    /// 列就白占一段空。
     /// <c>pixelsPerDip</c> 固定 1.0：列宽算法的单位本来就是 DIP，与屏幕缩放无关。
     /// </remarks>
     private static int MeasureWidth(string? text, double fontSize, FontWeight weight)
@@ -122,7 +125,7 @@ public partial class MainWindow : Window
         }
 
         var typeface = new Typeface(
-            new FontFamily("Microsoft YaHei UI"),
+            UiFontFamily,
             FontStyles.Normal,
             weight,
             FontStretches.Normal);
@@ -138,6 +141,14 @@ public partial class MainWindow : Window
 
         return (int)Math.Ceiling(formatted.WidthIncludingTrailingWhitespace);
     }
+
+    /// <summary>界面字体族（取令牌，取不到时回落到微软雅黑）。</summary>
+    private static FontFamily UiFontFamily =>
+        LazyFontFamily.Value;
+
+    private static readonly Lazy<FontFamily> LazyFontFamily = new(() =>
+        Application.Current?.TryFindResource("AppFontFamily") as FontFamily
+        ?? new FontFamily("Microsoft YaHei UI"));
 
     /// <summary>表格键盘：空格/回车切换勾选，Ctrl+Enter 放行给输入绑定（主操作）。</summary>
     private void OnFolderListKeyDown(object sender, KeyEventArgs e)
@@ -168,6 +179,20 @@ public partial class MainWindow : Window
         }
 
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// 只读 CLI（<c>--version</c> / <c>--help</c> / <c>--scan</c> / 未知参数）跑完后的收尾关窗。
+    /// </summary>
+    /// <remarks>
+    /// 必须先置放行标志：<see cref="OnWindowClosing"/> 的职责是"等视图模型收尾"，
+    /// 而 CLI 路径下视图模型始终是空闲的，再走一遍 <c>RequestCloseAsync</c> 只会多绕一圈，
+    /// 还可能在收尾中途被 <c>e.Cancel</c> 留下一个空窗口。
+    /// </remarks>
+    internal void CloseForCliExit()
+    {
+        _allowClose = true;
+        Close();
     }
 
     /// <summary>

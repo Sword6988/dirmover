@@ -175,6 +175,11 @@
                         ScrollViewer.VerticalScrollBarVisibility="Auto"
                         SelectionMode="Single"
                         SizeChanged="OnFolderListSizeChanged">
+                        <!--
+                          滚动条不需要在这里显式引用样式：Theme/Styles.xaml 里给 ScrollBar 设了
+                          隐式样式（纵向/横向两套模板 + 8→12px 悬停展开），列表、下拉浮层、
+                          弹窗正文、等宽报告区共用同一份。
+                        -->
                         <ListBox.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:FolderRowViewModel}">
                                 <!--

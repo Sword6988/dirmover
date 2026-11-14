@@ -228,6 +228,25 @@ if errorlevel 1 exit /b 1
 call :read_version
 if errorlevel 1 goto :fail
 
+rem Static guard: every {Binding} path in the WPF XAML must resolve to a real
+rem C# property. WPF binding errors are silent at runtime (no compiler error,
+rem no exception), and the tracing switch only works from an app.config, which
+rem the single-file promise forbids - so the check runs here instead.
+rem Python missing or script failing to RUN is a warning; unresolved paths FAIL.
+where python >nul 2>nul
+if errorlevel 1 (
+    echo [WARN] python not found, skipping tools\check-bindings.py - binding paths are unchecked.
+) else (
+    echo [1/3] Checking XAML binding paths ...
+    rem No argument here: %ROOT% ends with a backslash, and "%ROOT%" would turn
+    rem the trailing \" into an escaped quote and mangle the path.
+    python "%ROOT%tools\check-bindings.py"
+    if errorlevel 1 (
+        echo [FAILED] Unresolved binding paths - see the list above.
+        goto :fail
+    )
+)
+
 set "STAGE_NAME=DirMover-%VER%-wpf-net48"
 set "STAGE=%ROOT%dist\%STAGE_NAME%"
 set "ZIP=%ROOT%dist\%STAGE_NAME%.zip"
@@ -237,7 +256,7 @@ if exist "%STAGE%" rd /s /q "%STAGE%"
 if exist "%STAGE%" goto :stage_locked
 if exist "%ZIP%" del /f /q "%ZIP%"
 
-echo Publishing WPF single-exe output to "%STAGE%" ...
+echo [2/3] Publishing WPF single-exe output to "%STAGE%" ...
 "%DOTNET%" publish "src\DirMover.Wpf\DirMover.Wpf.csproj" -c Release --nologo -o "%STAGE%"
 if errorlevel 1 (
     echo [FAILED] WPF publish failed.
@@ -256,7 +275,7 @@ for /f %%a in ('dir /b "%STAGE%" ^| findstr /v /i "DirMover.exe"') do (
     goto :fail
 )
 
-echo Zipping ...
+echo [3/3] Zipping ...
 set "SYSTAR=%SystemRoot%\System32\tar.exe"
 if not exist "%SYSTAR%" goto :wpf_zip_ps
 "%SYSTAR%" -a -c -f "%ZIP%" -C "%ROOT%dist" "%STAGE_NAME%"
