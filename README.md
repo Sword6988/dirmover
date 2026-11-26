@@ -210,9 +210,9 @@ dotnet test tests\DirMover.Core.Tests   →  317 通过 / 0 失败 / 0 跳过（
 **WPF 单文件版实测（2026-11-26，本机）**：
 
 ```
-dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,024,000 B   ← 目录内只有它（无 exe.config、无 pdb）
-dist\DirMover-3.0.1-wpf-net48.zip              610,455 B
-exe SHA-256  e1053848610646c3503d4e55545a29e23338c495e77f25292375a0a5254e0c81
+dist\DirMover-3.0.2-wpf-net48\DirMover.exe   1,024,512 B   ← 目录内只有它（无 exe.config、无 pdb）
+dist\DirMover-3.0.2-wpf-net48.zip              610,819 B
+exe SHA-256  2a35a3e877aa728e61c2baabc9521898c589276697f2a4750fbf45f4ef0ddc7b
 ```
 
 `Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`、源码不变）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。

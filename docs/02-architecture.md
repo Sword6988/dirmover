@@ -207,7 +207,7 @@ public static class Catalog
     public const string ShellFoldersSubKey     = ExplorerSubKey + @"\Shell Folders";
     public const string WinlogonSubKey         = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon";
     public const string DefaultTargetLeaf      = "UserData";
-    public const string AppVersion             = "3.0.1";
+    public const string AppVersion             = "3.0.2";
     public const string SingleInstanceName     = @"Local\DirMover_Single";
 
     // 空间与等待（唯一真源，被引擎与界面文案共同复述）

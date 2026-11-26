@@ -45,7 +45,7 @@ public static class Catalog
     // ------------------------------------------------------------------ 应用元信息
 
     /// <summary>与上游版本对齐的应用版本号。</summary>
-    public const string AppVersion = "3.0.1";
+    public const string AppVersion = "3.0.2";
 
     /// <summary>目标根目录固定叶子名：取值恒为 <c>&lt;盘&gt;:\UserData</c>。</summary>
     public const string DefaultTargetLeaf = "UserData";
