@@ -1,10 +1,18 @@
 using DirMover.Core.IO;
+using Xunit.Abstractions;
 
 namespace DirMover.Core.Tests;
 
 /// <summary>T8：7 维校验、原子移动、目录创建、安全删源。</summary>
 public sealed class CopyVerifyTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public CopyVerifyTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     [Fact]
     public void VerifyCopy_CleanTree_IsVerified()
     {
@@ -120,6 +128,7 @@ public sealed class CopyVerifyTests
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
+            _output.WriteLine($"[ENV-MISSING] VerifyCopy_DanglingSymlink_IsRebuiltAndDoesNotFailForever 未执行：本机无法创建符号链接（{ex.GetType().Name}），不计为通过");
             return;
         }
 
@@ -166,6 +175,7 @@ public sealed class CopyVerifyTests
         IReadOnlyList<DriveVolume> drives = DriveInventory.ListFixedNonSystem();
         if (drives.Count == 0)
         {
+            _output.WriteLine("[ENV-MISSING] TryAtomicMove_CrossVolume_Refuses 未执行：本机无非系统固定盘（ListFixedNonSystem 返回 0 个），不计为通过");
             return;
         }
 
@@ -180,6 +190,7 @@ public sealed class CopyVerifyTests
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
+            _output.WriteLine($"[ENV-MISSING] TryAtomicMove_CrossVolume_Refuses 未执行：无法在 {drives[0].Root} 上构造跨卷临时目录（{ex.GetType().Name}），不计为通过");
             return;
         }
 

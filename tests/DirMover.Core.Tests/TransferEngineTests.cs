@@ -9,6 +9,83 @@ namespace DirMover.Core.Tests;
 public sealed class TransferEngineTests
 {
     [Fact]
+    public void BuildPlan_TwoItemsWithSameTarget_BothBlocked()
+    {
+        // 两个不同的文件夹算出了同一个目标路径 → 必须两项都阻断。
+        //
+        // 不阻断的后果不是"报错"，而是静默合并：第一项搬完并删源，第二项看到目标已存在
+        // 就走 Merge 分支，两份内容混进同一个目录、两个注册表值都指向它 —— 用户的
+        // "一个文件夹"就这么没了。目标名来自运行时解析的显示名（可被 desktop.ini 改），
+        // 所以这个撞车是可达的，不是纯理论。
+        using var env = new EngineEnv("engine-overlap");
+
+        // 两个源目录，各自的 desktop.ini 把显示名设成同一个值。
+        string docSrc = env.Sandbox.CreateDirectoryPath("src-documents");
+        string picSrc = env.Sandbox.CreateDirectoryPath("src-pictures");
+        env.Sandbox.CreateFile(Path.Combine("src-documents", "a.txt"), "x");
+        env.Sandbox.CreateFile(Path.Combine("src-pictures", "b.txt"), "y");
+        WriteDesktopIni(docSrc, "Shared");
+        WriteDesktopIni(picSrc, "Shared");
+
+        env.SeedValue(Catalog.UserShellFoldersSubKey, "Personal", docSrc);
+        env.SeedValue(Catalog.UserShellFoldersSubKey, "My Pictures", picSrc);
+
+        TransferEngine engine = env.Engine();
+        IReadOnlyList<PlanItem> plan = engine.BuildPlan(
+            new[] { "documents", "pictures" },
+            @"D:\UserData",
+            createUserDirectory: false,
+            userName: "tester",
+            scan: false);
+
+        Assert.Equal(2, plan.Count);
+        // 两项确实算出同一个目标（前提成立，否则本用例没有意义）。
+        Assert.Equal(plan[0].Target, plan[1].Target, StringComparer.OrdinalIgnoreCase);
+
+        // 两项都必须带阻断原因，且文案指向"合并"这件事。
+        Assert.All(plan, item =>
+        {
+            Assert.NotEqual(string.Empty, item.InvalidReason);
+            Assert.NotEqual(string.Empty, item.BlockingReason());
+        });
+        Assert.Contains("合并", plan[0].InvalidReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPlan_DifferentTargets_AreNotBlocked()
+    {
+        // 反向保护：正常的两项不能被重叠判定误伤（否则所有转移都做不了）。
+        using var env = new EngineEnv("engine-no-overlap");
+        string docSrc = env.Sandbox.CreateDirectoryPath("src-documents");
+        string picSrc = env.Sandbox.CreateDirectoryPath("src-pictures");
+        env.Sandbox.CreateFile(Path.Combine("src-documents", "a.txt"), "x");
+        env.Sandbox.CreateFile(Path.Combine("src-pictures", "b.txt"), "y");
+
+        env.SeedValue(Catalog.UserShellFoldersSubKey, "Personal", docSrc);
+        env.SeedValue(Catalog.UserShellFoldersSubKey, "My Pictures", picSrc);
+
+        TransferEngine engine = env.Engine();
+        IReadOnlyList<PlanItem> plan = engine.BuildPlan(
+            new[] { "documents", "pictures" },
+            @"D:\UserData",
+            createUserDirectory: false,
+            userName: "tester",
+            scan: false);
+
+        Assert.Equal(2, plan.Count);
+        Assert.NotEqual(plan[0].Target, plan[1].Target, StringComparer.OrdinalIgnoreCase);
+        Assert.All(plan, item => Assert.Equal(string.Empty, item.InvalidReason));
+    }
+
+    private static void WriteDesktopIni(string sourceDirectory, string localizedName)
+    {
+        File.WriteAllText(
+            Path.Combine(sourceDirectory, "desktop.ini"),
+            "[.ShellClassInfo]\r\nLocalizedResourceName=" + localizedName + "\r\n",
+            new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_CopyPath_CopiesWritesRegistryAndRemovesSource()
     {
         using var env = new EngineEnv("engine-copy");
@@ -105,6 +182,10 @@ public sealed class TransferEngineTests
         Assert.Contains("写入注册表失败", outcome.Message);
         // 源目录保留（rename 路径必须改回原位）
         Assert.True(Directory.Exists(src));
+        // 而且必须是"真的改回去了"：目标侧不能还留着已迁移的那份。
+        // 只断言"源还在"是不够的 —— 如果改回那一步被删掉，源本来就没被动过，用例照样绿。
+        Assert.False(Directory.Exists(dst), "回滚后目标侧不应残留已迁移的目录");
+        Assert.True(File.Exists(Path.Combine(src, "a.txt")), "回滚后源内容必须完好");
         // 本项已写入的值就地回滚：第二次写入是恢复原值
         Assert.Equal(2, env.Backend.Writes.Count);
         Assert.Equal(@"C:\old-documents", env.Backend.Writes[^1].Data);
@@ -218,6 +299,8 @@ public sealed class TransferEngineTests
 
         PlanItem item = Assert.Single(plan);
         Assert.Equal(current, item.Current);
+        // 目标叶子名按运行机器解析：源目录无 desktop.ini 时回退源物理尾名（语言无关）。
+        // 不再写死任何语言的目录名，"名称必须来自源 desktop.ini"由 RunConfigTests 覆盖。
         Assert.Equal(Path.Combine(destinationRoot, "Documents"), item.Target);
         Assert.False(item.Same);
         Assert.Single(item.RegistryTargets);
@@ -286,6 +369,8 @@ public sealed class TransferEngineTests
     {
         using var env = new EngineEnv("engine-samepath");
         string destinationRoot = env.Sandbox.Combine("dest");
+        // 当前位置的物理尾名与目标解析结果一致 → Same 判定成立。
+        // 用源物理名而非任何语言的显示名，保持用例语言无关。
         string current = Path.Combine(destinationRoot, "Documents");
         env.SeedValue(Catalog.UserShellFoldersSubKey, "Personal", current);
 

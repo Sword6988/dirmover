@@ -8,7 +8,7 @@
 | 项 | 说明 |
 |---|---|
 | **dotnet 路径** | 本机 `C:\Program Files\dotnet\` 下**没有 `sdk\`**（只有 host/shared/Swix），`PATH` 上的 `dotnet --version` 会报 *No .NET SDKs were found*。一律用 `DN="$USERPROFILE/.dotnet/dotnet.exe"`（SDK **8.0.404**）。验证：`"$DN" --list-sdks` |
-| **基线数字** | 当前套件 **Total 259 / Passed 259 / Failed 0 / Skipped 0**（2026-11-12 实测；QA 连跑三次 + team-lead 独立复跑，结果一致）。数字只用于"和基线比对"，**不要**把 `Skipped` 计入通过。 |
+| **基线数字** | 当前套件 **Total 317 / Passed 317 / Failed 0 / Skipped 0**（2026-11-25 实测，含 Bug1/Bug2 修复后的全量回归）。历史演进：236 → 259 → 268 → 286 → 290 → 311 → **317**。数字只用于"和基线比对"，**不要**把 `Skipped` 计入通过。 |
 | **`Skip` 的口径** | 基线是 `skip=0`，所以**一旦你的报告里 `skip>0`，必须逐条点名并标"未验证"**。历史上那条 Skip 是**硬编码的缺陷记账**（不是环境限制）——见 T5-②，这是本轮最重要的反面教材。 |
 | **固定盘数量（别沿用旧结论）** | 本机有 **C: / D: / E: 三个 `DriveType=3` 固定盘**（`Get-CimInstance Win32_LogicalDisk \| ? DriveType -eq 3`）。所以跨卷用例**不会**因 `drives.Count == 0` 提前返回。**任何"本机只有 C 盘"的说法都已作废**（§9.4）。 |
 | **"单跑通过、全量失败"先别归因** | 这个现象**只能**推出"两次跑的不是同一份代码或同一份状态"，**不能**推出"测试之间相互干扰"。本仓库已有 `[assembly: CollectionBehavior(DisableTestParallelization = true)]`（`TestSupport.cs`），并行不是默认嫌疑。本轮那次假红先后被解释成"并行竞态"和"读盘快照"，两条都错——真相是单跑跑的是修好的版本。**基线前仍要求工程师停手**，但理由是"保证跑的是同一份代码"，不是"防止并发"。 |
@@ -26,7 +26,7 @@
 |---|---|---|---|---|
 | T1-① | 解决方案恰好 3 个项目，不设 `DirMover.Interop` | `"$DN" sln list` | 3 行：`DirMover.Core` / `DirMover.App` / `DirMover.Core.Tests` | 建了 Interop 但没人引用；顺手查 `grep -c ProjectReference src/*/*.csproj` |
 | T1-② | Core 零第三方、零 UI 依赖 | `grep -c PackageReference src/DirMover.Core/DirMover.Core.csproj`；`grep -rn "using Microsoft.UI\|using Windows\." src/DirMover.Core --include=*.cs`；`ls Directory.Packages.props Directory.Build.props` | `0` / 空 / 均不存在 | 只查 csproj，漏掉仓库根的中央包管理（`Directory.Packages.props`）把包"注"进 Core |
-| T1-③ | 测试真的跑起来 | `"$DN" test tests/DirMover.Core.Tests/DirMover.Core.Tests.csproj -c Release` | `Failed: 0`、`Skipped: 0`，总数与基线（259）一致 | 用 Debug 跑、或只看"生成了 dll"；Release 才暴露 nullable 警告 |
+| T1-③ | 测试真的跑起来 | `"$DN" test tests/DirMover.Core.Tests/DirMover.Core.Tests.csproj -c Release` | `Failed: 0`、`Skipped: 0`，总数与基线（317）一致 | 用 Debug 跑、或只看"生成了 dll"；Release 才暴露 nullable 警告。**注意**：`Skipped: 0` 不等于"全跑了"——环境不具备时用例是 `return` 而非 skip，需另外 grep `[ENV-MISSING]` |
 | T2-① | 7 项目录真源与 PRD §2 逐字一致 | `UiTextTests` 中 `Assert.Equal(7, Catalog.All.Count)`，再逐项核 key / 显示名 / 默认路径 | 7，且 key 顺序与 PRD 表一致 | 只断言 `Count==7`，不看 key 拼写（`downloads` vs `Downloads`） |
 | T2-② | `downloads` 是"权威值名 + GUID 别名"双份 | `grep -n "downloads" src/DirMover.Core/Catalog.cs` + 各一条用例 | 两处 GUID 齐全；权威值名 `{374DE290-…}`、别名 `Personal` | 只测权威名；别名写错/漏写也绿 |
 | T2-③ | 文案只出自 `UiText`（**当前是"目标状态"，有 109 处存量**） | `grep -rnP "[\x{4e00}-\x{9fa5}]" src/DirMover.Core --include=*.cs \| grep -v UiText.cs` 再剔除纯注释行 → **预期 109**；明细见 §6.5 偏差表 | 新代码 0 新增；存量 109 处按"可接受 / 真违规 / 已声明例外"三类归档 | 直接 `grep -c` 报"有上千行中文"（把注释算进去），或宣称"只有 `UiText` 一处"——**这句现在是错的**，见 §6.5 |

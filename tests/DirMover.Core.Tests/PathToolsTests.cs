@@ -1,6 +1,7 @@
 using System.Text;
 using DirMover.Core.Interop;
 using DirMover.Core.IO;
+using Xunit.Abstractions;
 
 namespace DirMover.Core.Tests;
 
@@ -10,6 +11,13 @@ namespace DirMover.Core.Tests;
 /// </summary>
 public sealed class PathToolsTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public PathToolsTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     // ================================================================ 长路径前缀
 
     [Fact]
@@ -104,7 +112,7 @@ public sealed class PathToolsTests
 
         if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, real))
         {
-            // 宿主策略禁用 junction：软跳过（把环境限制判成功能缺陷会让红线长期飘红）。
+            _output.WriteLine("[ENV-MISSING] ResolvesToSame_DetectsJunctionPointingAtSource 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
             return;
         }
 
@@ -121,13 +129,14 @@ public sealed class PathToolsTests
         string programFiles = Path.Combine(Catalog.SystemDrive + "\\", "Program Files");
         if (!Directory.Exists(programFiles))
         {
+            _output.WriteLine($"[ENV-MISSING] LongPath_RestoresEightDotThreeShortName 未执行：{programFiles} 不存在，无法构造短名形态，不计为通过");
             return;
         }
 
         string? shortName = TryGetShortName(programFiles);
         if (shortName is null)
         {
-            // 该卷关闭了 8.3 名生成：无法构造短名形态，软跳过。
+            _output.WriteLine($"[ENV-MISSING] LongPath_RestoresEightDotThreeShortName 未执行：该卷关闭了 8.3 名生成（GetShortPathNameW 返回与长名一致），无法构造短名形态，不计为通过");
             return;
         }
 
@@ -192,6 +201,7 @@ public sealed class PathToolsTests
 
         if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, target))
         {
+            _output.WriteLine("[ENV-MISSING] IsReparsePoint_IsTrueForJunction 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
             return;
         }
 
@@ -210,8 +220,12 @@ public sealed class PathToolsTests
         Assert.True(free!.Value >= 0);
 
         // 未知盘符必须返回 null（不是 0、也不是抛异常）：0 会被调用方当成"无需检查"而放行，
-        // 探测失败时就会一路复制到磁盘写满。Z: 为本机不存在的盘符。
-        Assert.Null(PathTools.FreeSpace(@"Z:\no-such-drive\no-such-dir"));
+        // 探测失败时就会一路复制到磁盘写满。盘符不能写死 Z:——本机 Z: 被映射成网络盘后
+        // GetDiskFreeSpaceExW 会成功，这条与本次修复无关的用例会假红。现取一个确实不存在的盘符。
+        string unusedDrive = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            .Select(letter => letter + ":")
+            .First(letter => !Directory.Exists(letter + "\\"));
+        Assert.Null(PathTools.FreeSpace(unusedDrive + @"\no-such-drive\no-such-dir"));
     }
 
     [Fact]

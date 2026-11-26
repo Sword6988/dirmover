@@ -417,6 +417,14 @@ public static partial class FsOps
             return null;
         }
 
+        // 复用命中后把目标 mtime 对齐到源。
+        //
+        // 内容已经按摘要确认一致，时间戳在这里对齐是安全的（不会掩盖任何差异）。
+        // 不对齐的后果在"下一次运行"才显现：目标 mtime 停在上一次复制的时间，
+        // 用户在资源管理器按"修改时间"排序时看到的顺序与源不一致；
+        // 而 CopySingleFile 走的是 SetLastWriteTimeUtc 保源时间的路径，两条通道应当一致。
+        AlignLastWriteTime(targetPath, fingerprint.ModifiedTicksUtc);
+
         return new CopyItem
         {
             Rel = rel,
@@ -433,6 +441,36 @@ public static partial class FsOps
             },
             Reused = true,
         };
+    }
+
+    /// <summary>
+    /// 把目标文件的上次写入时间对齐到源（复用命中时调用）。
+    /// </summary>
+    /// <param name="targetPath">目标文件路径。</param>
+    /// <param name="modifiedTicksUtc">源文件的 UTC mtime（ticks）。</param>
+    /// <remarks>
+    /// 对齐失败不影响复用结论：内容摘要已经确认一致，时间戳只影响资源管理器的排序观感。
+    /// 这里刻意吞掉异常，不让"设不了时间"把一次成功的复用变成失败（某些网络盘/受控目录
+    /// 会拒绝对既有文件改时间戳）。
+    /// </remarks>
+    private static void AlignLastWriteTime(string targetPath, long modifiedTicksUtc)
+    {
+        if (modifiedTicksUtc <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetLastWriteTimeUtc(PathTools.ToExtended(targetPath), new DateTime(modifiedTicksUtc, DateTimeKind.Utc));
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or ArgumentOutOfRangeException)
+        {
+            // 见 remarks：不影响复用结论。
+        }
     }
 
     /// <summary>找下一个可用的冲突名：<c>a.txt</c> → <c>a (1).txt</c>。</summary>
@@ -631,8 +669,18 @@ public static partial class FsOps
 
         if (PathTools.Exists(targetLinkPath))
         {
-            // 目标侧已有同名条目：不覆盖（可能是上一次留下的链接）。
-            return;
+            // 目标侧已有同名条目：只有当它确实是"指向同一目标的链接"时才接受（幂等重试）。
+            //
+            // 旧实现无条件 return，等于"链接已重建"——不论那个条目是什么。若它是个真实目录
+            // 或指向别处的联接，校验维度⑥（旧版只判存在）也会跟着通过，最终"复制成功"的语义
+            // 与源不一致：删源后注册表指向的目标里可能只剩死链。
+            // 也不能一律报错：CopyMerge 是合并语义，重试时上一次建好的正确链接本就该被接受。
+            if (IsSameLink(targetLinkPath, resolved, isDirectory))
+            {
+                return;
+            }
+
+            throw new IOException("目标侧已存在同名条目且不是指向同一目标的链接，未重建链接");
         }
 
         if (isDirectory)
@@ -642,6 +690,50 @@ public static partial class FsOps
         else
         {
             Compat.CreateSymbolicLink(PathTools.ToExtended(targetLinkPath), resolved, isDirectory: false);
+        }
+    }
+
+    /// <summary>
+    /// 目标侧已有条目是否就是"我们本来要建的那个链接"（幂等重试用）。
+    /// </summary>
+    /// <param name="existingPath">目标侧已存在的路径。</param>
+    /// <param name="expectedTarget">本次应当指向的绝对路径。</param>
+    /// <param name="isDirectory">本次要建的是目录链接还是文件链接。</param>
+    /// <returns>确实是链接且指向一致时为 <c>true</c>；真实目录/文件、指向别处的链接都是 <c>false</c>。</returns>
+    private static bool IsSameLink(string existingPath, string expectedTarget, bool isDirectory)
+    {
+        if (!PathTools.IsReparsePoint(existingPath))
+        {
+            return false;
+        }
+
+        string bare = PathTools.StripExtendedPrefix(existingPath);
+        try
+        {
+            FileSystemInfo info = isDirectory ? new DirectoryInfo(bare) : new FileInfo(bare);
+            string? currentTarget = Compat.GetLinkTarget(info);
+            if (string.IsNullOrEmpty(currentTarget))
+            {
+                return false;
+            }
+
+            // 相对目标先归一成绝对路径再比，否则"..\x"与"D:\a\x"会被判成不同。
+            string current = currentTarget!;
+            if (!Path.IsPathRooted(current))
+            {
+                string? parent = Path.GetDirectoryName(bare);
+                current = Path.GetFullPath(Path.Combine(parent ?? string.Empty, current));
+            }
+
+            return PathTools.SamePath(current, expectedTarget);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException)
+        {
+            // 读不出来就不认（宁可报错让人看一眼，也不能默认"就是它"）。
+            return false;
         }
     }
 }

@@ -1,12 +1,20 @@
 using DirMover.Core.Engine;
 using DirMover.Core.Interop;
 using DirMover.Core.IO;
+using Xunit.Abstractions;
 
 namespace DirMover.Core.Tests;
 
 /// <summary>T6：清点与规模统计。</summary>
 public sealed class FsOpsScanTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public FsOpsScanTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     [Fact]
     public void EnumerateSource_EmptyDirectory_IsRecorded()
     {
@@ -34,6 +42,7 @@ public sealed class FsOpsScanTests
         string link = Path.Combine(src, "link");
         if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, outside))
         {
+            _output.WriteLine("[ENV-MISSING] EnumerateSource_Junction_IsLinkedAndNotRecursed 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
             return;
         }
 
@@ -179,6 +188,13 @@ public sealed class FsOpsScanTests
 /// <summary>T7：安全复制（分块 + 摘要、稀疏、硬链接、<c>.part</c> 原子落盘、同名冲突、进度、取消）。</summary>
 public sealed class FsOpsCopyTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public FsOpsCopyTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     [Fact]
     public void CopyMerge_SimpleTree_CopiesFilesDirsAndKeepsSource()
     {
@@ -271,6 +287,7 @@ public sealed class FsOpsCopyTests
         string link = Path.Combine(src, "link");
         if (!TryCreateSymlink(link, real))
         {
+            _output.WriteLine("[ENV-MISSING] CopyMerge_RebuildsSymlink 未执行：本机无法创建目录符号链接，不计为通过");
             return;
         }
 
@@ -280,6 +297,63 @@ public sealed class FsOpsCopyTests
         Assert.True(result.Ok);
         Assert.Contains("link", result.Links);
         Assert.NotNull(new DirectoryInfo(Path.Combine(dst, "link")).LinkTarget);
+    }
+
+    [Fact]
+    public void CopyMerge_TargetHasRealDirectoryWhereSourceHasLink_FailsClosed()
+    {
+        // 目标侧同名位置是个"真实目录"而不是链接时，绝不能当作"链接已重建"放过。
+        //
+        // 放过的话校验维度⑥（只判存在）也会跟着通过，于是"复制成功"的语义并不等于源：
+        // 删源之后，注册表指向的目标里那一项是个空壳目录，用户的原链接内容取不到。
+        using var sandbox = new TempDirectory("copy-link-real-dir");
+        string src = sandbox.CreateDirectoryPath("src");
+        string real = sandbox.Combine("real-target");
+        Directory.CreateDirectory(real);
+        string link = Path.Combine(src, "link");
+        if (!TryCreateSymlink(link, real))
+        {
+            return;
+        }
+
+        string dst = sandbox.Combine("dst");
+        // 预先在目标侧同名位置放一个真实目录（模拟上一次留下的错误残留）。
+        Directory.CreateDirectory(Path.Combine(dst, "link"));
+
+        CopyResult result = FsOps.CopyMerge(src, dst);
+
+        Assert.False(result.Ok);
+        Assert.NotEmpty(result.Errors);
+        // 必须是链接这一路报的错，而不是别的原因。
+        Assert.Contains(result.Errors, e => e.Contains("链接", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CopyMerge_SameLinkAlreadyPresent_IsIdempotent()
+    {
+        // 反过来：目标侧已经是"指向同一目标的链接"时，重试必须被接受（合并语义要求幂等）。
+        using var sandbox = new TempDirectory("copy-link-idem");
+        string src = sandbox.CreateDirectoryPath("src");
+        string real = sandbox.Combine("real-target");
+        Directory.CreateDirectory(real);
+        string link = Path.Combine(src, "link");
+        if (!TryCreateSymlink(link, real))
+        {
+            _output.WriteLine("[ENV-MISSING] CopyMerge_SameLinkAlreadyPresent_IsIdempotent 未执行：本机无法创建目录符号链接，不计为通过");
+            return;
+        }
+
+        string dst = sandbox.Combine("dst");
+        // 第一次复制：在目标侧建出正确的链接。
+        CopyResult first = FsOps.CopyMerge(src, dst);
+        Assert.True(first.Ok);
+
+        // 第二次复制：目标侧已有同指向的链接，必须仍然成功（而不是报"同名条目冲突"）。
+        CopyResult second = FsOps.CopyMerge(src, dst);
+
+        Assert.True(second.Ok);
+        Assert.Contains("link", second.Links);
+        Assert.Empty(second.Errors);
     }
 
     [Fact]
@@ -356,6 +430,7 @@ public sealed class FsOpsCopyTests
         string second = Path.Combine(src, "two.bin");
         if (!NativeMethods.CreateHardLinkW(second, first, IntPtr.Zero))
         {
+            _output.WriteLine($"[ENV-MISSING] CopyMerge_HardlinkedSource_IsRelinked 未执行：CreateHardLinkW 失败（Win32 错误码 {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}），该卷可能为 FAT/ReFS 等不支持硬链接的文件系统，不计为通过");
             return;
         }
 
@@ -392,6 +467,7 @@ public sealed class FsOpsCopyTests
         string second = Path.Combine(src, "two.bin");
         if (!NativeMethods.CreateHardLinkW(PathTools.ToExtended(second), PathTools.ToExtended(first), IntPtr.Zero))
         {
+            _output.WriteLine($"[ENV-MISSING] CopyMerge_HardlinkedSource_UnderLongPath_IsRelinked 未执行：CreateHardLinkW 失败（Win32 错误码 {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}），该卷可能为 FAT/ReFS 等不支持硬链接的文件系统，不计为通过");
             return;
         }
 

@@ -281,6 +281,8 @@ public sealed class SafetyRedLineEngineTests
         Assert.True(Directory.Exists(src));
         Assert.Equal("hello", File.ReadAllText(Path.Combine(src, "a.txt")));
         Assert.False(Directory.Exists(Path.Combine(src, "src")));
+        // 被闸门挡下：源目录下不许出现任何新建的目标子目录（语言无关，不写死具体目录名）。
+        Assert.Empty(Directory.GetDirectories(src));
         Assert.Empty(env.Backend.Writes);
     }
 

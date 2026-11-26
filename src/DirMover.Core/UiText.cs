@@ -574,6 +574,26 @@ public static class UiText
     /// <summary>重启资源管理器被取消。</summary>
     public const string ShellRestartCancelled = "已取消重启资源管理器。";
 
+    /// <summary>
+    /// 结束 explorer 的命令返回非零退出码（命令本身失败，不能当"已重启"）。
+    /// </summary>
+    /// <param name="exitCode"><c>taskkill</c> 退出码（-1 = 启动失败或超时）。</param>
+    public static string ShellRestartKillFailed(int exitCode) =>
+        $"结束资源管理器失败（taskkill 退出码 {exitCode}），改动可能尚未生效；请在任务管理器手动结束 explorer.exe 后运行 explorer.exe，或注销后重新登录。";
+
+    /// <summary>
+    /// 已发出结束命令，但结束前的 explorer 进程仍在运行（过滤条件没匹配到 / 进程拒绝退出）。
+    /// 必须给出可操作提示，绝不能报"重启成功"。
+    /// </summary>
+    public const string ShellRestartKillNotConfirmed =
+        "已发出结束命令，但本会话的资源管理器仍在运行，重启流程未完成；请在任务管理器手动结束 explorer.exe 后运行 explorer.exe，或注销后重新登录。";
+
+    /// <summary>
+    /// 取不到当前会话号：不能发出无法按会话收窄的结束命令（会误伤其它会话的桌面）。
+    /// </summary>
+    public const string ShellRestartSessionUnknown =
+        "无法确定当前会话，为避免结束其它会话的桌面，本次未重启资源管理器；请手动运行 explorer.exe 或注销后重新登录。";
+
     // ---------------------------------------------------------------- 失败文案族（含去向 + 下一步）
 
     /// <summary>当前位置无法确定（注册表里既没有权威值也没有别名）。</summary>
@@ -861,6 +881,17 @@ public static class UiText
     /// <param name="source">源路径。</param>
     public static string GuardSamePhysical(string target, string source) =>
         $"目标与待转移目录实际指向同一位置（链接或盘符别名）：{target}（{source}）";
+
+    /// <summary>两个待转移项算出了重叠的目标路径。</summary>
+    /// <param name="first">第一个文件夹的界面名。</param>
+    /// <param name="second">第二个文件夹的界面名。</param>
+    /// <remarks>
+    /// 指向用户可操作的动作（改显示名或分开转移），因为这一条通常源于
+    /// desktop.ini 里自定义过的显示名，而不是用户填错了什么。
+    /// </remarks>
+    public static string TargetOverlap(string first, string second) =>
+        $"「{first}」与「{second}」的目标路径相同或互相包含，继续执行会把两个文件夹合并成一个；"
+        + "请分开转移，或先修正该文件夹的显示名。";
 
     /// <summary>目标位于源内部。</summary>
     /// <param name="target">目标路径。</param>

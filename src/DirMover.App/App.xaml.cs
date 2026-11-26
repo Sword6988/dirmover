@@ -106,6 +106,14 @@ public partial class App : Application
             viewModel.ReacquireSingleInstanceGate = ReacquireSingleInstance;
 
             _window.Attach(viewModel);
+
+            // 先关交互再激活：单实例判定必须在 Activate 之后（重复启动要弹窗，
+            // 弹窗需要 XamlRoot，也就需要已激活的窗口），而 Activate 到判定之间有一段窗口期。
+            // 不关的话，第二个实例的主界面会先正常亮出来、主按钮可用，用户在这段时间里
+            // 点"开始"就是两个实例并发搬运同一批目录 —— 那是会真损坏数据的。
+            // 开关落在视图模型上（窗口内容是 Grid，没有 IsEnabled；IsHitTestVisible 也挡不住键盘）。
+            viewModel.InteractionEnabled = false;
+
             _window.Activate();
 
             // 单实例判定放在窗口创建之后：重复启动要能"弹一句再走"，
@@ -113,9 +121,13 @@ public partial class App : Application
             _guard = SingleInstanceGuard.Acquire(_paths, _log, out bool alreadyRunning);
             if (alreadyRunning)
             {
+                // 重复实例：交互保持关闭，弹完提示后由 ShowAlreadyRunningAsync 自己退出。
                 _ = ShowAlreadyRunningAsync(dialogs);
                 return true;
             }
+
+            // 本实例是唯一实例，放开交互。
+            viewModel.InteractionEnabled = true;
 
             if (_args.IsCliOnly && _window.Content is FrameworkElement cliRoot)
             {

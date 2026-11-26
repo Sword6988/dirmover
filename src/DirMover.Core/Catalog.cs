@@ -4,7 +4,7 @@ namespace DirMover.Core;
 /// 一个可转移的用户文件夹的静态规格。
 /// </summary>
 /// <param name="Key">稳定标识（"documents" …），用于勾选集合与日志，不面向用户。</param>
-/// <param name="Display">界面显示名（"我的文档" …）。</param>
+/// <param name="Display">界面显示名（"我的文档" …）。<b>只上屏</b>，绝不参与路径合成。</param>
 /// <param name="ValueName">权威注册表值名。注意 <c>downloads</c> 的权威值名本身就是一个 GUID。</param>
 /// <param name="DefaultPath">系统出厂默认路径，<b>保留</b> <c>%USERPROFILE%</c> 形态（写回注册表时要与系统原生写法一致）。</param>
 /// <param name="Aliases">需要一并同步的其它值名（GUID）。写入时只更新"注册表中已存在"的别名，绝不凭空创建。</param>
@@ -67,8 +67,26 @@ public static class Catalog
     /// <summary>结束 explorer 之后的静置等待（等它真的退出、句柄释放）。</summary>
     public static readonly TimeSpan ExplorerTermWait = TimeSpan.FromMilliseconds(1500);
 
-    /// <summary>重新拉起 explorer 之后的存活确认等待。</summary>
-    public static readonly TimeSpan ExplorerRelaunchWait = TimeSpan.FromSeconds(1);
+    /// <summary>
+    /// AutoRestartShell 的自动拉起宽限：确认旧 explorer 已退出后，先轮询等系统把
+    /// shell 拉回来；宽限内没回来才由本程序显式拉起。
+    /// </summary>
+    /// <remarks>
+    /// winlogon 重启 shell 不是瞬时的（实机观察 1–3 s，负载高更久）。旧实现固定 1 s
+    /// 只查一次：宽限太短会导致"系统本来要拉、我们先抢了"或"系统还没来得及拉、我们
+    /// 判定它不会拉"，两种都制造多余的 explorer 或多余的失败。
+    /// </remarks>
+    public static readonly TimeSpan ExplorerAutoRespawnWait = TimeSpan.FromSeconds(3);
+
+    /// <summary>显式拉起 explorer 之后的存活确认预算（轮询，出现即算存活）。</summary>
+    /// <remarks>
+    /// 旧实现固定 1 s 只查一次：拉起通道本身可能要重试（shell 基础设施刚随 explorer
+    /// 一起死掉），进程创建也可能慢于 1 s。预算内反复查，出现即返回。
+    /// </remarks>
+    public static readonly TimeSpan ExplorerRelaunchTotalWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>explorer 存活 / 自动拉起轮询的间隔。</summary>
+    public static readonly TimeSpan ExplorerRelaunchPoll = TimeSpan.FromMilliseconds(250);
 
     /// <summary>删源退避重试的第一次等待。</summary>
     public static readonly TimeSpan RemoveBackoff1 = TimeSpan.FromMilliseconds(200);
@@ -112,6 +130,11 @@ public static class Catalog
 
     // ------------------------------------------------------------------ 7 项规格（顺序即界面顺序）
 
+    /// <remarks>
+    /// 规格表里<b>刻意不放</b>"目标目录名"这一列：那个名字必须按<b>运行机器</b>的 UI 语言在
+    /// 运行时解析（见 <see cref="IO.FolderDisplayName"/>），任何写死的语言都会把别的机器改错。
+    /// <c>DefaultPath</c> 的英文物理名只在"恢复默认值"时写回注册表，不作为目标叶子名。
+    /// </remarks>
     private static readonly IReadOnlyList<FolderSpec> FolderList = new FolderSpec[]
     {
         new("documents", "我的文档", "Personal", @"%USERPROFILE%\Documents",

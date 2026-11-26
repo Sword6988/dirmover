@@ -61,6 +61,38 @@ public static partial class FsOps
 
         var problems = new List<string>();
 
+        // 零维度：清单全空时必须再独立复核一次"源真的是空的"。
+        //
+        // 全空清单走完下面所有循环都不会产生任何 problem，于是 Verified=true ——
+        // 源是真空目录时这没错（空目录搬到空目录本来就该成功）；但如果枚举因为
+        // 权限形态异常而返回了空集（ACL 只给 LIST、不给逐项读），那就是
+        // "什么都没搬却报成功"，随后还会删源。这一次复核只用最基础的
+        // EnumerateFileSystemEntries，不依赖清点阶段的任何中间结果。
+        if (result.Items.Count == 0 && result.Dirs.Count == 0 && result.Links.Count == 0)
+        {
+            try
+            {
+                bool sourceHasEntries = false;
+                foreach (string _ in Directory.EnumerateFileSystemEntries(PathTools.ToExtended(src)))
+                {
+                    sourceHasEntries = true;
+                    break;
+                }
+
+                if (sourceHasEntries)
+                {
+                    problems.Add("源清单为空但源目录仍有内容，疑似清点不完整");
+                }
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or ArgumentException)
+            {
+                // 复核本身读不了 → 同样不能判定"确实是空"，fail-closed。
+                problems.Add($"无法确认源目录为空：{ex.Message}");
+            }
+        }
+
         // ⑦ 按名跳过却未复制 → fail-closed
         if (result.Skipped.Count > 0)
         {
@@ -323,7 +355,7 @@ public static partial class FsOps
             problems.Add($"源侧少了 {removed.Count} 个清单内文件（样例：{Sample(removed)}）");
         }
 
-        // ⑥ 清单内目录与链接在目标侧齐备（链接按"条目存在"判：悬空链接也算已重建）
+        // ⑥ 清单内目录与链接在目标侧齐备。
         var missingDirs = new List<string>();
         foreach (string rel in result.Dirs)
         {
@@ -338,12 +370,32 @@ public static partial class FsOps
             problems.Add($"目标缺少 {missingDirs.Count} 个目录（样例：{Sample(missingDirs)}）");
         }
 
-        var missingLinks = result.Links
-            .Where(rel => !PathTools.Exists(Path.Combine(dst, rel)))
-            .ToList();
-        if (missingLinks.Count > 0)
+        // 链接这一维必须判"它还是个链接"，不能只判"这个路径上有东西"。
+        //
+        // 只判存在时，目标侧那个同名条目可以是任何东西——真实目录、指向任意位置的联接、
+        // 上一轮留下的旧链接——全都会被当成"链接已重建"。后果是校验通过却语义不等：
+        // 若那个条目正好是指向源树某子目录的联接，删源之后注册表指向的目标目录里
+        // 就只剩一堆死链。悬空链接仍算通过（源侧本来就是悬空链接时，重建出来也是悬空的），
+        // 但"不是链接"一律不通过。
+        var wrongLinks = new List<string>();
+        foreach (string rel in result.Links)
         {
-            problems.Add($"目标缺少 {missingLinks.Count} 个链接（样例：{Sample(missingLinks)}）");
+            string targetLink = Path.Combine(dst, rel);
+            if (!PathTools.Exists(targetLink))
+            {
+                wrongLinks.Add(rel);
+                continue;
+            }
+
+            if (!PathTools.IsReparsePoint(targetLink))
+            {
+                wrongLinks.Add(rel);
+            }
+        }
+
+        if (wrongLinks.Count > 0)
+        {
+            problems.Add($"目标缺少 {wrongLinks.Count} 个链接（样例：{Sample(wrongLinks)}）");
         }
     }
 

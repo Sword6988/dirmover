@@ -1,5 +1,5 @@
-﻿DirMover 3.0.1 便携版
-=====================
+﻿DirMover 3.0.1 便携版（单文件）
+================================
 
 这是什么
   「用户数据目录转移工具」的免安装版本：把 Windows 用户目录（我的文档 / 收藏夹 / 图片 / 音乐 /
@@ -7,31 +7,41 @@
   典型场景：C 盘被用户数据塞满，需要把它们挪到 D 盘（或 E 盘）而应用仍然照常找到这些文件夹。
 
 怎么用
-  1. 把整个目录解压到任意位置（本地硬盘、U 盘都可以，路径含空格或中文不影响）。
-  2. 双击 DirMover.App.exe。程序会请求管理员权限（要改 HKCU 的 shell folder、要删源目录，
+  1. 把 DirMover.exe 放到任意位置直接双击即可（本地硬盘、U 盘都可以，路径含空格或中文不影响）。
+     不需要解压，也没有任何随附文件。
+  2. 双击后程序会请求管理员权限（要改 HKCU 的 shell folder、要删源目录，
      没有提权必然失败）。
   3. 选择「目标根目录」→ 勾选要搬的项 → 「开始转移」→ 在确认框里核对清单。
   4. 完成后表格的「当前位置」列会指向新路径。想搬回系统默认位置，点「恢复系统默认值」。
 
-便携性说明
-  - 免安装、零前置依赖：不需要预装 .NET 8 运行时，也不需要 Windows App Runtime，
-    全部依赖都在本目录内。
+单文件与便携性说明
+  - 只有一个 exe：所有依赖（.NET Framework 运行时除外）已织入 exe 内部，
+    不存在 *.dll / *.pri / *.config，拷走这一个文件就能在任何支持的机器上跑。
+  - 依赖 .NET Framework 4.8：Windows 10 1809 及以上系统自带，无需另外安装。
+    程序不会生成 exe.config（已关闭自动绑定重定向），所以目录里永远只有这一个文件。
   - 不写用户配置：目标盘与勾选状态是纯内存态，每次启动都回到已知安全默认值。
     这是刻意的设计——避免"上次那个错误的目标盘被记住"导致重复误操作。
-  - 日志与备份位置：程序目录可写时，日志写在本目录 logs\、备份写在本目录 backups\（便携模式）；
-    如果本目录只读（光盘、只读 U 盘），自动回落到 %LOCALAPPDATA%\DirMover。
-  - 卸载：直接删除本目录即可；若曾回落到 LOCALAPPDATA，再把该目录一并删除。
+  - 日志与备份位置：首次运行会在 exe 同目录创建 logs\ 与 backups\（便携模式）；
+    如果该目录只读（光盘、只读 U 盘），自动回落到 %LOCALAPPDATA%\DirMover。
+  - 卸载：直接删除 exe 与随之生成的 logs\、backups\ 即可；
+    若曾回落到 LOCALAPPDATA，再把该目录一并删除。
 
-目录内容
-  DirMover.App.exe          主程序（WinUI 3，x64）
-  *.dll / *.pri / *.xbf     .NET 8 与 Windows App Runtime 的运行时文件，请勿删除或改名
-  README-Portable.txt       本文件
+显示名说明（重要）
+  界面与"目标文件夹名"一律使用系统里的**显示名**（如「我的文档」「收藏夹」），
+  而不是物理路径尾名（Documents、Favorites）。显示名优先从该目录下的 desktop.ini
+  读取 LocalizedResourceName；读不到时才回退到物理尾名。
+  因此若某个目录被手动改名或被 desktop.ini 指向了同一个名字，两个项的目标路径可能撞车——
+  程序会在规划阶段直接阻断并提示（不会静默合并两个文件夹）。
 
 系统要求
   Windows 10 1809（内部版本 17763）及以上，x64。
+  需要 .NET Framework 4.8（Win10 1809+ 系统自带）。
 
 命令行参数（可选）
-  DirMover.App.exe              正常界面
-  DirMover.App.exe --dry-run    试运行：完整规划与判定，零副作用
-  DirMover.App.exe --scan       只读扫描：生成报告，不做任何修改
-  DirMover.App.exe --version    版本与参数说明
+  DirMover.exe              正常界面
+  DirMover.exe --dry-run    试运行：完整规划与判定，零副作用
+  DirMover.exe --scan       只读扫描：生成报告到 logs\scan-<时间戳>.txt，不做任何修改
+  DirMover.exe --version    启动并记录版本（GUI 程序，版本见日志首行）
+
+  注意：本程序是 GUI 子系统应用，命令行输出不会打印到控制台；
+  要看 --scan / --version 的结果，请打开 exe 同目录的 logs\ 下对应文件。

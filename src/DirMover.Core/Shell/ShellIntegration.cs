@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using DirMover.Core.Diagnostics;
 using DirMover.Core.Interop;
@@ -25,11 +26,27 @@ internal interface IProcessExecutor
     /// <summary>启动进程并等待退出，返回退出码（超时/启动失败返回 -1）。</summary>
     int Run(string fileName, IReadOnlyList<string> arguments, TimeSpan timeout);
 
-    /// <summary>指定镜像名是否在运行。</summary>
+    /// <summary>指定镜像名是否在本会话中运行。</summary>
     bool IsRunning(string imageName);
 
+    /// <summary>
+    /// 取<b>本会话</b>内指定镜像名的进程 ID 快照。
+    /// </summary>
+    /// <remarks>
+    /// 用途是把"结束前的旧 explorer"与"AutoRestartShell 自动拉起的新 explorer"区分开：
+    /// 只看镜像名是否在跑，无法分辨"没杀掉"和"已经重启了"，旧实现因此把失败报成成功。
+    /// </remarks>
+    IReadOnlyList<int> SnapshotSessionProcessIds(string imageName);
+
     /// <summary>拉起一个进程（不等待）。</summary>
-    bool Start(string fileName, IReadOnlyList<string>? arguments);
+    /// <param name="fileName">可执行文件。</param>
+    /// <param name="arguments">参数（可为 null）。</param>
+    /// <param name="useShellExecute">
+    /// 是否走 shell 通道。**降级路径必须传 false**（直接 CreateProcess）：shell 基础设施
+    /// 刚随 explorer 一起死掉时，ShellExecute 通道会失败，此刻唯一可靠的通道就是
+    /// <c>CreateProcess</c>。打开目录等"需要 shell 语义"的场景仍传 true。
+    /// </param>
+    bool Start(string fileName, IReadOnlyList<string>? arguments, bool useShellExecute = true);
 }
 
 /// <summary>默认实现：<see cref="Process"/>。</summary>
@@ -159,21 +176,59 @@ internal sealed class DefaultProcessExecutor : IProcessExecutor
         }
     }
 
-    public bool IsRunning(string imageName)
+    public bool IsRunning(string imageName) => SessionProcessIds(imageName, Compat.SessionId()).Count > 0;
+
+    public IReadOnlyList<int> SnapshotSessionProcessIds(string imageName) =>
+        SessionProcessIds(imageName, Compat.SessionId());
+
+    /// <summary>
+    /// 枚举指定镜像名并<b>按会话收窄</b>。多用户 / RDP 下同机还有别人的 explorer，
+    /// 机器级 <c>GetProcessesByName</c> 会把本会话的"没在跑"误报成"在跑"。
+    /// 会话号取不到时返回空集（fail-closed）：宁可查不到，也绝不把别的会话算进来。
+    /// </summary>
+    private static IReadOnlyList<int> SessionProcessIds(string imageName, int sessionId)
     {
+        if (sessionId <= 0)
+        {
+            return Array.Empty<int>();
+        }
+
         Process[] processes;
         try
         {
             processes = Process.GetProcessesByName(imageName);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException)
+        catch (Exception ex) when (ex is InvalidOperationException
+            or System.ComponentModel.Win32Exception
+            or PlatformNotSupportedException)
         {
-            return false;
+            // Win32Exception 也要接住：受限令牌 / AppContainer 下枚举进程列表可能直接失败。
+            // 这里不接的话异常会从 RestartExplorerAsync 的 try 块之外冒出去，
+            // 变成 UI 层一条"界面命令执行失败"，而不是一条可读的 ShellOpResult 失败文案。
+            return Array.Empty<int>();
         }
 
+        var ids = new List<int>(processes.Length);
         try
         {
-            return processes.Length > 0;
+            foreach (Process process in processes)
+            {
+                try
+                {
+                    if (!process.HasExited && process.SessionId == sessionId)
+                    {
+                        ids.Add(process.Id);
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException
+                    or System.ComponentModel.Win32Exception
+                    or PlatformNotSupportedException)
+                {
+                    // 进程刚好退出 / 读不到会话号：不计入本会话快照。
+                }
+            }
+
+            return ids;
         }
         finally
         {
@@ -184,11 +239,15 @@ internal sealed class DefaultProcessExecutor : IProcessExecutor
         }
     }
 
-    public bool Start(string fileName, IReadOnlyList<string>? arguments)
+    public bool Start(string fileName, IReadOnlyList<string>? arguments, bool useShellExecute = true)
     {
         try
         {
-            var startInfo = new ProcessStartInfo(fileName) { UseShellExecute = true };
+            var startInfo = new ProcessStartInfo(fileName)
+            {
+                UseShellExecute = useShellExecute,
+                CreateNoWindow = !useShellExecute,
+            };
             if (arguments is not null)
             {
                 foreach (string argument in arguments)
@@ -225,6 +284,9 @@ public static class ShellIntegration
 
     /// <summary>UAC 被用户取消的错误码（<c>ERROR_CANCELLED</c>）。</summary>
     private const int ErrorCancelled = 1223;
+
+    /// <summary>确认 explorer 退出时的轮询间隔（毫秒）。</summary>
+    private const int ExplorerExitPollMilliseconds = 150;
 
     /// <summary>
     /// 进程执行器。单测可替换为"只记录参数"的假实现（本字段 <c>internal</c>，外部不可改）。
@@ -280,6 +342,14 @@ public static class ShellIntegration
         if (!NativeMethods.ShellExecuteExW(ref info))
         {
             int error = Marshal.GetLastWin32Error();
+
+            // 失败路径也要关句柄：SEE_MASK_NOCLOSEPROCESS 下 shell 可能已经把 hProcess 回填，
+            // 只是启动阶段失败（例如目标进程创建被策略拦下）。不关就是每次失败漏一个句柄。
+            if (info.hProcess != IntPtr.Zero)
+            {
+                NativeMethods.CloseHandle(info.hProcess);
+            }
+
             return new ShellOpResult(
                 false,
                 error == ErrorCancelled ? UiText.ElevationCancelled : UiText.ElevationFailed(error));
@@ -321,16 +391,30 @@ public static class ShellIntegration
     }
 
     /// <summary>
-    /// 重启本用户会话的资源管理器：结束 → 静置 1.5 s → 复查 → 未回来则拉起 → 存活确认 1 s。
+    /// 重启本用户会话的资源管理器：结束 → 确认退出 → 拉起（系统未自动拉起时）→ 存活确认。
     /// </summary>
-    /// <param name="ct">取消令牌（只影响两段等待）。</param>
+    /// <param name="ct">取消令牌（作用于全部等待）。</param>
     /// <remarks>
-    /// 结束命令必须带 <c>/fi "username eq &lt;本用户&gt;"</c>：不带过滤条件会把同机其它会话的
-    /// 桌面一起关掉（多用户 / RDP 场景下的真实事故）。
+    /// 结束命令必须带 <c>/fi "username eq DOMAIN\user"</c> 与 <c>/fi "session eq &lt;本会话&gt;"</c>：
+    /// 不带用户过滤会把同机其它会话的桌面一起关掉；<c>taskkill</c> 的 USERNAME 列是
+    /// <c>DOMAIN\user</c> 形态，只给 <c>Environment.UserName</c> 在域/本机账户下都匹配不到进程。
     /// <para>
-    /// 拉起顺序：① <c>ShellExecuteExW</c>（<c>lpVerb=nil</c>、<c>SW_SHOWNORMAL</c>、
-    /// <c>System32\explorer.exe</c> 绝对路径，走 shell 即不继承提权令牌）→ ② <c>Process.Start</c>
-    /// → ③ 都失败则明说"请手动运行 explorer.exe"。
+    /// 为什么必须"确认退出"：<c>taskkill</c> 在过滤条件没匹配到任何进程时<b>仍返回 0</b>
+    /// （只打印 INFO），而 Windows 的 <c>AutoRestartShell</c> 又会在结束后自动拉起一个新 explorer。
+    /// 单次 <c>IsRunning</c> 因此既分不清"旧进程没死"也分不清"新进程已来"——旧实现在这两种
+    /// 情况下都会跳过拉起直接返回"重启成功"。这里改为先拍 PID 快照，只认"快照里的 PID 全消失"，
+    /// 再判断是否需要由我们显式拉起。
+    /// </para>
+    /// <para>
+    /// 用户名形态在域账号 / AzureAD 账号 / "以其它管理员身份运行"时可能与 USERNAME 列不一致，
+    /// 因此过滤条件没匹配到时还有一道<b>按 PID 精确补杀</b>：PID 只取结束前拍到的、此刻仍活着的
+    /// 本会话进程，不依赖任何用户名格式，也绝不会跨会话。会话号本身取不到时直接 fail-closed
+    /// 返回可操作提示，绝不发出无法按会话收窄的结束命令。
+    /// </para>
+    /// <para>
+    /// 结束态与 <c>AutoRestartShell</c> 开关无关：系统自动拉起时跳过重复拉起（避免多开窗口），
+    /// 系统不拉起时由本方法用未提权令牌显式拉起；两种情况下都做存活确认，不存活则补拉一次。
+    /// 只要返回 Ok，本会话就必然有一个存活的 explorer。
     /// </para>
     /// </remarks>
     public static async Task<ShellOpResult> RestartExplorerAsync(CancellationToken ct = default)
@@ -340,7 +424,15 @@ public static class ShellIntegration
             return new ShellOpResult(false, UiText.ShellRestartManual);
         }
 
-        string userName = Environment.UserName;
+        int sessionId = Compat.SessionId();
+        if (sessionId <= 0)
+        {
+            // 拿不到会话号时，任何 /fi 都无法保证只作用于本会话：宁可不动 explorer。
+            return new ShellOpResult(false, UiText.ShellRestartSessionUnknown);
+        }
+
+        // ① 结束：只针对本用户 + 本会话。
+        string userName = FilteredUserName();
         var arguments = new List<string>
         {
             "/f",
@@ -348,42 +440,199 @@ public static class ShellIntegration
             "explorer.exe",
             "/fi",
             $"username eq {userName}",
+            "/fi",
+            $"session eq {sessionId}",
         };
 
-        Executor.Run("taskkill.exe", arguments, Catalog.ExplorerKillTimeout);
+        IReadOnlyList<int> before = Executor.SnapshotSessionProcessIds("explorer");
+        Log($"重启explorer: 会话={sessionId} 用户={userName} 结束前本会话explorer PID=[{string.Join(",", before)}]");
+        int killExitCode = Executor.Run("taskkill.exe", arguments, Catalog.ExplorerKillTimeout);
+        Log($"重启explorer: taskkill 退出码={killExitCode}");
+        if (killExitCode != 0 && before.Count > 0)
+        {
+            return new ShellOpResult(false, UiText.ShellRestartKillFailed(killExitCode));
+        }
+
+        // before 为空（本会话本来就没有 explorer，例如被策略禁用或用户在用别的 shell）时，
+        // taskkill 报 "not found" 返回 128 —— 那是"没东西可杀"，不是失败。
+        // 这种情况要继续往下走拉起阶段，否则用户点了"重启资源管理器"只会拿到一句报错。
 
         try
         {
-            await Task.Delay(Catalog.ExplorerTermWait, ct).ConfigureAwait(false);
+            // ② 确认退出：结束前那批 PID 必须全部消失，否则就是"过滤条件没生效"，不能报成功。
+            if (!await WaitForExplorerExitAsync(before, ct).ConfigureAwait(false))
+            {
+                Log("重启explorer: 第一轮退出确认失败（旧 PID 仍在）→ 按 PID 精确补杀");
+                // 用户名/会话过滤没匹配到时的确定性兜底：只结束"结束前拍到、此刻仍活着"的本会话 PID。
+                IReadOnlyList<int> survivors =
+                    CommonPids(before, Executor.SnapshotSessionProcessIds("explorer"));
+                if (survivors.Count > 0)
+                {
+                    Log($"重启explorer: 按 PID 补杀 [{string.Join(",", survivors)}]");
+                    KillSessionPids(survivors);
+                }
+
+                if (!await WaitForExplorerExitAsync(before, ct).ConfigureAwait(false))
+                {
+                    Log("重启explorer: 第二轮退出确认仍失败 → 放弃（桌面可能还活着）");
+                    return new ShellOpResult(false, UiText.ShellRestartKillNotConfirmed);
+                }
+            }
+
+            Log("重启explorer: 旧 explorer 已确认退出");
+
+            // ③ 自动拉起宽限：winlogon（AutoRestartShell）重启 shell 不是瞬时的（实机 1–3 s）。
+            // 轮询宽限期内没回来，才由我们显式拉起；系统拉了就不再重复（避免多开窗口）。
+            bool autoRespawned = await WaitUntilExplorerRunningAsync(
+                Catalog.ExplorerAutoRespawnWait, ct).ConfigureAwait(false);
+            if (autoRespawned)
+            {
+                Log($"重启explorer: 系统已自动拉起（宽限 {Catalog.ExplorerAutoRespawnWait.TotalSeconds:F0}s 内）→ 跳过显式拉起");
+            }
+            else
+            {
+                Log($"重启explorer: 宽限 {Catalog.ExplorerAutoRespawnWait.TotalSeconds:F0}s 内系统未自动拉起 → 显式拉起");
+                if (!LaunchExplorer())
+                {
+                    Log("重启explorer: 显式拉起失败（两条通道都没起来）→ 报请手动运行");
+                    return new ShellOpResult(false, UiText.ShellRestartManual);
+                }
+            }
+
+            // ④ 存活确认：预算内轮询，出现即算存活；预算用尽补拉一次，再给一轮预算。
+            if (!await WaitUntilExplorerRunningAsync(Catalog.ExplorerRelaunchTotalWait, ct).ConfigureAwait(false))
+            {
+                Log($"重启explorer: 存活确认 {Catalog.ExplorerRelaunchTotalWait.TotalSeconds:F0}s 内未见 explorer → 显式补拉一次");
+                if (!LaunchExplorer())
+                {
+                    Log("重启explorer: 补拉失败 → 报请手动运行");
+                    return new ShellOpResult(false, UiText.ShellRestartManual);
+                }
+
+                if (!await WaitUntilExplorerRunningAsync(Catalog.ExplorerRelaunchTotalWait, ct).ConfigureAwait(false))
+                {
+                    Log("重启explorer: 补拉后仍未确认存活 → 报请手动运行");
+                    return new ShellOpResult(false, UiText.ShellRestartManual);
+                }
+            }
+
+            Log("重启explorer: 成功（本会话已有存活的 explorer）");
         }
         catch (OperationCanceledException)
         {
             return new ShellOpResult(false, UiText.ShellRestartCancelled);
         }
 
-        if (!Executor.IsRunning("explorer"))
+        return new ShellOpResult(true, UiText.ShellRestartOk);
+    }
+
+    /// <summary>
+    /// 轮询等待本会话出现 <c>explorer</c> 进程；预算内出现即返回 <c>true</c>。
+    /// </summary>
+    /// <remarks>
+    /// 替代旧的"固定等 1 s 查一次"：1 s 对 winlogon 自动拉起与进程创建都可能不够，
+    /// 查一次的窗口太窄，两种正常的慢都会被误判成失败。
+    /// </remarks>
+    private static async Task<bool> WaitUntilExplorerRunningAsync(TimeSpan budget, CancellationToken ct)
+    {
+        long remainingMs = (long)budget.TotalMilliseconds;
+        int pollMs = (int)Catalog.ExplorerRelaunchPoll.TotalMilliseconds;
+        while (true)
         {
-            if (!LaunchExplorer())
+            ct.ThrowIfCancellationRequested();
+            if (Executor.IsRunning("explorer"))
             {
-                return new ShellOpResult(false, UiText.ShellRestartManual);
+                return true;
             }
 
-            try
+            if (remainingMs <= 0)
             {
-                await Task.Delay(Catalog.ExplorerRelaunchWait, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return new ShellOpResult(false, UiText.ShellRestartCancelled);
+                return false;
             }
 
-            if (!Executor.IsRunning("explorer"))
+            int step = (int)Math.Min(pollMs, remainingMs);
+            await DelayAsync(step, ct).ConfigureAwait(false);
+            remainingMs -= step;
+        }
+    }
+
+    /// <summary>
+    /// 结束命令后轮询等待"结束前那批 explorer PID"全部消失；超时返回 <c>false</c>。
+    /// </summary>
+    /// <param name="previousPids">结束前拍下的本会话 PID 快照。</param>
+    /// <param name="ct">取消令牌。</param>
+    private static async Task<bool> WaitForExplorerExitAsync(
+        IReadOnlyList<int> previousPids,
+        CancellationToken ct)
+    {
+        if (previousPids.Count == 0)
+        {
+            // 结束前本会话就没有 explorer：没有需要确认的旧进程，直接进入拉起阶段。
+            return true;
+        }
+
+        int remaining = (int)Math.Min(Catalog.ExplorerTermWait.TotalMilliseconds, int.MaxValue);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (CommonPids(previousPids, Executor.SnapshotSessionProcessIds("explorer")).Count == 0)
             {
-                return new ShellOpResult(false, UiText.ShellRestartManual);
+                return true;
+            }
+
+            if (remaining <= 0)
+            {
+                return false;
+            }
+
+            int step = Math.Min(ExplorerExitPollMilliseconds, remaining);
+            await Task.Delay(step, ct).ConfigureAwait(false);
+            remaining -= step;
+        }
+    }
+
+    /// <summary>
+    /// 两个 PID 快照的交集（只针对 PID，不看镜像名，避免新进程被当成旧进程）。
+    /// </summary>
+    private static IReadOnlyList<int> CommonPids(IReadOnlyList<int> left, IReadOnlyList<int> right)
+    {
+        if (left.Count == 0 || right.Count == 0)
+        {
+            return Array.Empty<int>();
+        }
+
+        var known = new HashSet<int>(right);
+        var common = new List<int>();
+        foreach (int pid in left)
+        {
+            // Remove 既判存在又去重，避免同一 PID 被重复传给 taskkill。
+            if (known.Remove(pid))
+            {
+                common.Add(pid);
             }
         }
 
-        return new ShellOpResult(true, UiText.ShellRestartOk);
+        return common;
+    }
+
+    /// <summary>
+    /// 按 PID 精确结束本会话中"结束前就在、现在还活着"的 explorer。
+    /// </summary>
+    /// <remarks>
+    /// 不看这次 <c>Run</c> 的退出码：PID 可能刚好自行退出（taskkill 会报"没有找到进程"），
+    /// 真正的判据是随后那轮"旧 PID 是否全部消失"。参数里没有 <c>/fi</c>，因为 PID 本身
+    /// 就是从本会话快照里取出的、比任何用户名过滤都更窄的标识。
+    /// </remarks>
+    private static void KillSessionPids(IReadOnlyList<int> pids)
+    {
+        var arguments = new List<string>((pids.Count * 2) + 1) { "/f" };
+        foreach (int pid in pids)
+        {
+            arguments.Add("/pid");
+            arguments.Add(pid.ToString(CultureInfo.InvariantCulture));
+        }
+
+        Executor.Run("taskkill.exe", arguments, Catalog.ExplorerKillTimeout);
     }
 
     /// <summary>用资源管理器打开一个目录。</summary>
@@ -461,9 +710,72 @@ public static class ShellIntegration
 
     // ================================================================ 内部
 
+    /// <summary>
+    /// 诊断日志出口（由宿主注入，例如 <see cref="Diagnostics.IAppLog"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 重启资源管理器是全流程里唯一"主动杀掉用户桌面"的环节，失败模式又高度依赖
+    /// 目标机器的状态（AutoRestartShell 是否生效、shell 通道是否可用、进程创建多慢）。
+    /// 没有这一环节的日志，报障时只能看到一句"无法自动拉起"，无法定位是哪一步、
+    /// 哪条通道失败——2026-11-26 的报障正是这种情况。每一步的结论都必须落到这里。
+    /// </remarks>
+    public static Action<string>? DiagnosticsSink { get; set; }
+
+    /// <summary>测试钩子：替换轮询循环里的 <see cref="Task.Delay"/>（测试不能真等 10 s）。</summary>
+    internal static Func<int, CancellationToken, Task>? DelayHook { get; set; }
+
+    private static Task DelayAsync(int milliseconds, CancellationToken ct) =>
+        DelayHook is not null ? DelayHook(milliseconds, ct) : Task.Delay(milliseconds, ct);
+
+    private static void Log(string message)
+    {
+        try
+        {
+            DiagnosticsSink?.Invoke(message);
+        }
+        catch
+        {
+            // 日志出口本身出错不能影响主流程（拉起 explorer 优先于一切）。
+        }
+    }
+
+    /// <summary>
+    /// <c>taskkill</c> 的 USERNAME 过滤值必须是 <c>DOMAIN\user</c> 形态（简报 §"重启资源管理器"）：
+    /// 只给裸用户名在域账户 / 本机账户（<c>MACHINE\user</c>）下都匹配不到进程。
+    /// </summary>
+    private static string FilteredUserName()
+    {
+        string name = Environment.UserName ?? string.Empty;
+        string domain;
+        try
+        {
+            domain = Environment.UserDomainName ?? string.Empty;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException)
+        {
+            domain = string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(domain) ? name : domain + "\\" + name;
+    }
+
     private static bool LaunchExplorer()
     {
-        string explorer = Path.Combine(Environment.SystemDirectory, "explorer.exe");
+        // explorer.exe 在 %WINDIR% 根目录（C:\Windows\explorer.exe，Windows 所有版本一致），
+        // **不在** System32 / SysWOW64——用 Environment.SystemDirectory 拼出来的
+        // C:\Windows\System32\explorer.exe 不存在，ShellExecute 与 CreateProcess 两条通道
+        // 都会以 Win32Error=2（ERROR_FILE_NOT_FOUND）失败。2026-11-26 报障实证：
+        // 日志显示两条通道都失败且 ShellExecute 错误码为 2，本机 ls 验证 System32 下确无此文件。
+        // 一直没暴露的原因：测试用假钩子不解析真实路径；开发机 AutoRestartShell 拉得快，
+        // 走不到显式拉起分支。报障机器恰好系统未自动拉起，才踩中这条坏路径。
+        string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        string explorer = Path.Combine(windows, "explorer.exe");
+        if (!File.Exists(explorer))
+        {
+            // 理论不可达（%WINDIR%\explorer.exe 是 Windows 的固定组成）；真发生了也要落日志，
+            // 否则又是两条通道一起失败而日志里只有一句"无法自动拉起"。
+            Log($"重启explorer: ⚠ 拉起目标不存在：{explorer}");
+        }
 
         // ① 走 shell（lpVerb = nil）：不继承本进程的提权令牌，否则会拉起一个高权限桌面。
         if (ShellLaunchHook is not null)
@@ -491,12 +803,26 @@ public static class ShellIntegration
                     NativeMethods.CloseHandle(info.hProcess);
                 }
 
+                Log("重启explorer: ShellExecute 通道拉起成功");
                 return true;
             }
+
+            // explorer 刚被杀掉时 shell 基础设施正处在半死状态，这条通道失败是"正常失败"，
+            // 必须把错误码落日志，才能在报障时分清"通道坏了"还是"文件不在"。
+            Log($"重启explorer: ShellExecute 通道失败 Win32Error={Marshal.GetLastWin32Error()}");
         }
 
-        // ② 降级：直接启动绝对路径。
-        return Executor.Start(explorer, arguments: null);
+        // ② 降级：直接 CreateProcess（UseShellExecute = false）。
+        //
+        // 降级绝不能再用 ShellExecute 通道：① 与 ② 走同一条路的话，shell 半死时两条
+        // 一起失败，"兜底"形同虚设——2026-11-26 报障机器上 explorer 拉不回来，最可疑的
+        // 正是这个组合。explorer.exe 的进程创建不需要 shell 代劳，CreateProcess 直启
+        // 才是独立于 shell 状态的第二条通道。
+        bool started = Executor.Start(explorer, arguments: null, useShellExecute: false);
+        Log(started
+            ? "重启explorer: CreateProcess 通道拉起成功"
+            : "重启explorer: CreateProcess 通道也失败");
+        return started;
     }
 }
 

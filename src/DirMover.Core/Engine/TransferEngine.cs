@@ -245,7 +245,66 @@ public sealed class TransferEngine
             items.Add(item);
         }
 
+        BlockOverlappingTargets(items);
+
         return items;
+    }
+
+    /// <summary>
+    /// 拦截"两个不同项算出同一个目标路径"的情况。
+    /// </summary>
+    /// <param name="items">本批计划项（就地写入阻断原因）。</param>
+    /// <remarks>
+    /// <b>为什么必须单独查一遍</b>：<see cref="DestinationGuard.ValidateDestination"/> 只校验
+    /// "目标不在任何一个<b>源</b>里"，是目标对源的一对一判定；它不检查两项目标<b>彼此</b>是否重叠。
+    /// 而目标路径来自<b>运行时解析的本地化名</b>（可被 desktop.ini 自定义），所以两个项算出同一个
+    /// 目标是可达的 —— 例如某个文件夹的显示名被改成了当前用户名，就会与"创建用户目录"那一层撞车。
+    /// <para>
+    /// 撞车后果不是"报错"，而是<b>静默合并</b>：第一项搬完并删源，第二项执行时看到目标已存在
+    /// 就走 <c>Merge</c> 分支，两份内容混进同一个目录，两个注册表值都指向它，用户的"一个文件夹"
+    /// 就这么消失了。这种损坏不可逆，所以两项一起阻断（宁可都不做，也不合并）。
+    /// </para>
+    /// </remarks>
+    private void BlockOverlappingTargets(List<PlanItem> items)
+    {
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].Same || string.IsNullOrWhiteSpace(items[i].Target))
+            {
+                continue;
+            }
+
+            for (int j = i + 1; j < items.Count; j++)
+            {
+                if (items[j].Same || string.IsNullOrWhiteSpace(items[j].Target))
+                {
+                    continue;
+                }
+
+                string a = items[i].Target;
+                string b = items[j].Target;
+                bool clash = PathTools.SamePath(a, b)
+                    || PathTools.IsWithin(a, b)
+                    || PathTools.IsWithin(b, a);
+                if (!clash)
+                {
+                    continue;
+                }
+
+                string reason = UiText.TargetOverlap(items[i].Spec.Display, items[j].Spec.Display);
+                if (items[i].InvalidReason.Length == 0)
+                {
+                    items[i].InvalidReason = reason;
+                }
+
+                if (items[j].InvalidReason.Length == 0)
+                {
+                    items[j].InvalidReason = reason;
+                }
+
+                _log.Warn($"{items[i].Spec.Display} 与 {items[j].Spec.Display} 的目标路径重叠（{a} / {b}），两项均已阻断");
+            }
+        }
     }
 
     /// <summary>

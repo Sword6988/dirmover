@@ -1,4 +1,5 @@
 using DirMover.Core.IO;
+using Xunit.Abstractions;
 
 namespace DirMover.Core.Tests;
 
@@ -23,6 +24,13 @@ namespace DirMover.Core.Tests;
 /// </remarks>
 public sealed class DriveRootTargetGuardTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public DriveRootTargetGuardTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     /// <summary>红线 8：裸盘根作为目标 → 拒绝，且理由必须是"盘根"。</summary>
     [Fact]
     public void DriveRootAsTarget_IsRejected()
@@ -98,6 +106,7 @@ public sealed class DriveRootTargetGuardTests
         if (drives.Count == 0)
         {
             // 本机没有第二个固定盘：该形态无法构造（属环境限制，不是断言失败）。
+            _output.WriteLine("[ENV-MISSING] NonSystemDriveRoot_IsAlsoRejected 未执行：本机无非系统固定盘（ListFixedNonSystem 返回 0 个），不计为通过");
             return;
         }
 

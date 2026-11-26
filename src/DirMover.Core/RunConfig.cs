@@ -79,15 +79,28 @@ public sealed class RunConfig
     }
 
     /// <summary>
-    /// 按 PRD §2.1 合成目标路径：<c>&lt;根&gt;\&lt;用户名&gt;\&lt;基名&gt;</c> 或 <c>&lt;根&gt;\&lt;基名&gt;</c>。
+    /// 按 PRD §2.1 合成目标路径：<c>&lt;根&gt;\&lt;用户名&gt;\&lt;本地化目录名&gt;</c> 或
+    /// <c>&lt;根&gt;\&lt;本地化目录名&gt;</c>。
     /// </summary>
-    /// <param name="spec">文件夹规格（基名取不到时用显示名兜底）。</param>
-    /// <param name="currentPath">当前位置（基名取它最后一段，而不是显示名）。</param>
+    /// <param name="spec">文件夹规格（只用于校验与日志；<b>不</b>提供目录名）。</param>
+    /// <param name="currentPath">当前位置（从它的 desktop.ini 解析本机本地化显示名）。</param>
     /// <param name="userName">当前用户名（<see cref="Environment.UserName"/>）。</param>
     /// <returns>
     /// 目标绝对路径；当 <see cref="DestinationRoot"/> 为空（没有任何可用目标盘）时
     /// <b>原样返回当前位置</b>——这样 <c>Same</c> 判定自然为真，该项恒为「无需转移」。
     /// </returns>
+    /// <remarks>
+    /// <b>目标叶子名不能取源路径最后一段的物理名</b>：中文/日文 Windows 上
+    /// <c>%USERPROFILE%\Documents</c> 的物理名是英文，本地化显示名来自目录内
+    /// <c>desktop.ini</c>。复制路径不会保留 <c>desktop.ini</c> 的 Hidden/System 属性，
+    /// shell 因此回退显示英文物理名 —— 界面目标列、导航窗格、盘上目录名会一起变英文。
+    /// <para>
+    /// 修复口径：<see cref="FolderDisplayName.Resolve"/> 在<b>运行机器上</b>读取并解析该
+    /// <c>desktop.ini</c> 的 <c>LocalizedResourceName</c>，用它当物理目录名。解析不到时退回
+    /// <see cref="PathTools.TailName"/>(物理名)。两条路径都不含任何语言的字面量，
+    /// 因此与运行机器、系统 UI 语言、用户自定义名全部解耦。
+    /// </para>
+    /// </remarks>
     public string ComposeTarget(FolderSpec spec, string currentPath, string userName)
     {
         ArgumentNullException.ThrowIfNull(spec);
@@ -98,10 +111,17 @@ public sealed class RunConfig
             return (currentPath ?? string.Empty).Trim();
         }
 
-        string baseName = PathTools.TailName(currentPath);
+        string? localized = FolderDisplayName.Resolve(currentPath);
+        string baseName = localized ?? string.Empty;
         if (baseName.Length == 0)
         {
-            baseName = spec.Display;
+            baseName = PathTools.TailName(currentPath);
+        }
+
+        if (baseName.Length == 0)
+        {
+            // 既没有本地化名也没有物理基名：不造名字，退回原路径让 Same 判定接管。
+            return (currentPath ?? string.Empty).Trim();
         }
 
         root = root.TrimEnd('\\', '/');

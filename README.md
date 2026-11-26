@@ -36,7 +36,7 @@ build.cmd portable    :: 打便携包到 dist\（可运行目录 + zip，即 Rel
 build.cmd wpf         :: 打 WPF/.NET FW 4.8 单文件包到 dist\（一个 exe + zip）
 ```
 
-**便携版（交付形态）**：`build.cmd portable` 产出一份**免安装**包——`dist\DirMover-<版本>-portable-win-x64\` 与同名 `.zip`。解压到任意位置（含 U 盘）双击 `DirMover.App.exe` 即可运行：不需要 .NET 运行时，不需要 Windows App Runtime，不写用户配置（目标盘与勾选是纯内存态）；程序目录可写时日志与备份落在同目录 `logs\`/`backups\`（便携模式），只读位置则回落 `%LOCALAPPDATA%\DirMover`。包内附 `README-Portable.txt` 使用说明。**单文件版本已废弃**——它每次启动把原生 dll 自解压到 `%TEMP%`，与"便携"正好相反。
+**便携版（WinUI 3 形态）**：`build.cmd portable` 产出一份**免安装**包——`dist\DirMover-<版本>-portable-win-x64\` 与同名 `.zip`。解压到任意位置（含 U 盘）双击 `DirMover.App.exe` 即可运行：不需要 .NET 运行时，不需要 Windows App Runtime，不写用户配置（目标盘与勾选是纯内存态）；程序目录可写时日志与备份落在同目录 `logs\`/`backups\`（便携模式），只读位置则回落 `%LOCALAPPDATA%\DirMover`。包内附 `README-Portable.txt` 使用说明。⚠ **这里说的"单文件已废弃"，专指 WinUI 3 侧那种用 `PublishSingleFile` 把原生 dll 自解压到 `%TEMP%` 的做法**——它与"便携"正好相反，已废弃。**不要误读成下面的 WPF 单文件版**：后者是独立的正式交付形态，用 Costura 织入托管依赖、不产生 `%TEMP%` 自解压，见下一段。
 
 **WPF 单文件版（兼容形态）**：`build.cmd wpf` 产出 `dist\DirMover-<版本>-wpf-net48\DirMover.exe` 与同名 `.zip`——**一个 exe**（Costura 把 Core 与依赖织入，无 exe.config）。面向"有 .NET Framework 4.8 运行时（Win10 1809+ 自带）但没有 Windows App Runtime"的机器。引擎与视图模型与 WinUI 版是**同一份源码**（`DirMover.Core` 多目标 net8/net48，ViewModel 链接编译），两版行为一致由编译器保证；界面层是 WPF 重绘，视觉与 WinUI 版同源令牌。构建只需 .NET 8 SDK（引用程序集由 `Microsoft.NETFramework.ReferenceAssemblies` 包提供，目标机不需要任何预装）。
 
@@ -50,6 +50,8 @@ dotnet publish src\DirMover.App\DirMover.App.csproj -c Release --self-contained 
 `build.cmd` 里仍然传的 `-p:Platform=x64 -p:EnableCoreMrtTooling=false` 是**给旧包版本（1.5 / 22621 代）留的保险**（那一代那里会撞 `AnyCPU is not supported for Self Contained mode` 与 `MSB4062`），本代已非必需 —— **"脚本里传了 2 个"与"本代需要 2 个"是两件事**。`-p:UseRidGraph=true` **不需要**：csproj 已显式指定 `RuntimeIdentifier=win-x64` 与 `Platforms=x64`，推断 RID 图的前提不成立。
 
 **运行**：`DirMover.App.exe` 清单声明 `requireAdministrator`，启动即请求提权（写 HKCU 的 shell folders 与删源都需要）。
+
+**下表是 WinUI 3 版（`DirMover.App.exe`）的参数**。WPF 单文件版（`DirMover.exe`）参数语义相同，但**参数名换成 `DirMover.exe`**，且有一处差异：它是 GUI 子系统程序，`--version` / `--scan` 的结果**不打印到控制台**，需看日志目录（`--scan` 写 `logs\scan-yyyyMMdd-HHmmss.txt`，`--version` 见日志首行）。
 
 ```
 DirMover.App.exe              正常界面
@@ -106,7 +108,7 @@ src/
     Dialogs/                    自绘无边框弹窗 + WpfDialogService（14 类弹窗，SizeToContent 自适应）
     Theme/                      Tokens.xaml 浅色档全量、Styles.xaml 用 ControlTemplate.Triggers 重做交互态
 tests/
-  DirMover.Core.Tests/        16 文件 / 5072 行 / 268 条（xunit 2.9.2，net8 侧）
+  DirMover.Core.Tests/        17 个 .cs 文件 / 5800 行 / 317 条（xunit 2.9.2，net8 侧）
 tools/
   check-bindings.py           XAML 绑定路径静态校验（build.cmd wpf 第一步自动跑；
                               WPF 绑定写错运行期不报错也不抛异常，没有 app.config 就没有运行期诊断）
@@ -198,22 +200,22 @@ docs/                         研究简报、PRD、架构、验收清单、类�
 ## 验证状况
 
 ```
-dotnet test tests\DirMover.Core.Tests   →  268 通过 / 0 失败 / 0 跳过（11 s）
+dotnet test tests\DirMover.Core.Tests   →  317 通过 / 0 失败 / 0 跳过（17 s）
 ```
 
-基线演进：236（初版）→ 259（红线补测轮）→ **268**（全仓审计修复轮 +9，明细见 `docs/04-redline-coverage.md`）。数字只用于比对，**不要把 `Skipped` 计入通过**。Core 现为 `net8.0-windows;net48` 双目标，但**测试只在 net8 侧跑一遍**——这是有意的：net48 分支不新增业务逻辑，只做 API 形态适配，它的正确性由"WPF 版能编译 + 能跑通完整迁移"来验，而不是靠把 268 条用例再跑一遍。
+基线演进：236（初版）→ 259（红线补测轮）→ 268（全仓审计修复轮 +9）→ 286 → 290 → 311 → **317**（明细见 `docs/04-redline-coverage.md`）。数字只用于比对，**不要把 `Skipped` 计入通过**；另注意有若干用例在环境不具备时会 `return` 并输出 `[ENV-MISSING]`（xunit 2.9.2 无 `Assert.Skip`），**这些在计数上算通过、但验收语义上必须记为未验证**，换机器时需 grep 输出复核。Core 现为 `net8.0-windows;net48` 双目标，但**测试只在 net8 侧跑一遍**——这是有意的：net48 分支不新增业务逻辑，只做 API 形态适配，它的正确性由"WPF 版能编译 + 能跑通完整迁移"来验，而不是靠把 317 条用例再跑一遍。
 
 > 以上数字全部来自 **Core 层**。界面层的启动验证见「已知偏差 4」——**已通过**。卡了两轮的根因是**发布配置缺陷**（自包含产物没随包带框架 `resources.pri`），不是本项目代码，也**不是"本机不支持自包含"**（上一版这样读，是错的）。
 
-**WPF 单文件版实测（2026-11-14，本机）**：
+**WPF 单文件版实测（2026-11-26，本机）**：
 
 ```
-dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,008,640 B   ← 目录内只有它（无 exe.config、无 pdb）
-dist\DirMover-3.0.1-wpf-net48.zip              597,352 B
-exe SHA-256  e8d5686733dcf22b7e077d33b15276e203be71d0b0d837e518d93d14f39b8cdb
+dist\DirMover-3.0.1-wpf-net48\DirMover.exe   1,024,000 B   ← 目录内只有它（无 exe.config、无 pdb）
+dist\DirMover-3.0.1-wpf-net48.zip              610,455 B
+exe SHA-256  e1053848610646c3503d4e55545a29e23338c495e77f25292375a0a5254e0c81
 ```
 
-`Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
+`Deterministic=true` 在这版是**真的可复现**：连续两次 `build.cmd wpf`（中间清过 `dist`、源码不变）产出的 exe 哈希一致。**zip 的哈希每次不同**——不是构建不稳定，而是归档里带了文件时间戳；要核对就核 exe，别核 zip。
 
 从 `dist` 里**直接跑那个 exe** 截的图（不是从 `bin\` 跑的调试产物）：`docs/ui-redesign-screenshots/wpf-dist-main.png`（964×721，主窗口：表格卡片、状态列着色、空态、按钮组与 WinUI 版逐项对照一致）与 `wpf-dist-dialog.png`（562×338，`--version` 弹窗）。`--scan` / `--dry-run` / 退出码 0·2·3·4 与 WinUI 版同文案同口径。
 
@@ -223,7 +225,7 @@ exe SHA-256  e8d5686733dcf22b7e077d33b15276e203be71d0b0d837e518d93d14f39b8cdb
 - **无边框自绘弹窗会先按最小尺寸量一遍**。首版弹窗宽到 1440 px、等宽报告区还居中折行。修法是 `SizeToContent="WidthAndHeight"` + 显式给 `BodyScroll.Width`/`MaxHeight`，等宽块用只读 `TextBox`（`TextBlock` 在 WPF 里不支持选中）设 `TextWrapping.NoWrap` + `TextAlignment.Left`，横向滚动条自己承担溢出。
 - **`Closing` 管线里不能再调 `Close()`**。关窗收尾是"先 `e.Cancel = true`，再 `await RequestCloseAsync()`，然后 `Close()`"——但 `await` 的续体经 Dispatcher 恢复时，触发本次 Closing 的那次 Close 还没走完，此时 `Close()` 被 `VerifyNotClosing` 拒绝，抛 `InvalidOperationException` 并触发全局异常弹窗（`startup_error.txt` 有实测记录）。修法：最终关闭延到下一轮 Dispatcher（`CloseDeferred`），那是一次全新的 Close 调用，放行标志已置位。回归脚本 `out/close_test_wpf.py`：WM_CLOSE → 退出码 0、无错误日志。
 
-**视觉对齐轮（2026-11-14）**：界面再向便携版靠了一档——ComboBox 整模板重绘（#FBFBFB 扁平底、4px 圆角、字形箭头、8px 圆角浮层与控件同宽）、勾选框 20px + 勾号弹出动画 + 按下 92% 微缩、键盘焦点环改成 Fluent 双线式、滚动条悬停 8→12px 展开、字体回退链改 `Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI`（Win11 数字与便携版同款，Win10 回落 Segoe UI）。**Mica 试过又撤了**：便携版本身没有 Mica（纯色浅灰底），而 WPF 端做系统 backdrop 需要 `DwmExtendFrameIntoClientArea(-1)` + 透明背景，实测会透出桌面其它窗口内容且文字有合成重影——偏离便携版观感，不做。这一轮全部改动合计 **+4.6 KB**（exe 0.96→0.96 MiB 级），对比图见 `docs/ui-redesign-screenshots/wpf-aligned-main.png` 与 `wpf-aligned-combo-open.png`。顺带修掉了只在 net48 目标暴露的一批可空性警告（net48 引用程序集缺 `NotNullWhen` 注解，`IsNullOrEmpty` 不收窄——判空改写成对两个目标都成立的显式形式，net8 行为不变，268 测全绿）。
+**视觉对齐轮（2026-11-14）**：界面再向便携版靠了一档——ComboBox 整模板重绘（#FBFBFB 扁平底、4px 圆角、字形箭头、8px 圆角浮层与控件同宽）、勾选框 20px + 勾号弹出动画 + 按下 92% 微缩、键盘焦点环改成 Fluent 双线式、滚动条悬停 8→12px 展开、字体回退链改 `Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI`（Win11 数字与便携版同款，Win10 回落 Segoe UI）。**Mica 试过又撤了**：便携版本身没有 Mica（纯色浅灰底），而 WPF 端做系统 backdrop 需要 `DwmExtendFrameIntoClientArea(-1)` + 透明背景，实测会透出桌面其它窗口内容且文字有合成重影——偏离便携版观感，不做。这一轮全部改动合计 **+4.6 KB**（exe 0.96→0.96 MiB 级），对比图见 `docs/ui-redesign-screenshots/wpf-aligned-main.png` 与 `wpf-aligned-combo-open.png`。顺带修掉了只在 net48 目标暴露的一批可空性警告（net48 引用程序集缺 `NotNullWhen` 注解，`IsNullOrEmpty` 不收窄——判空改写成对两个目标都成立的显式形式，net8 行为不变，317 测全绿）。
 
 **强调色对齐图标（2026-11-14，用户反馈）**：应用图标主体是蓝色渐变（#1870C0→#4090E0），而界面强调色一直是青碧（#0E7C86 系）——"图标蓝、界面青"各唱各的。把两版（WinUI 便携版 + WPF 单文件版）的强调色族整体换成图标蓝：AccentBrush=#1870C0（图标原色）、悬停 #3888D8 / 按下 #1068B8（同取自图标渐变）、链接与状态文字 #0B5394（白底约 7.8:1）、弱底与空态徽章同族淡蓝；深色档整体提亮同色相（#6FB2E8 系）。**语义色不动**：成功=绿、危险=红、警告=黄的语义仍然保留（状态列"完成"仍是绿字）。改的只是 `Theme/Tokens.xaml` 一处真源（外加遗留未接线的 `App/Tokens.xaml` 同步），布局零改动。
 

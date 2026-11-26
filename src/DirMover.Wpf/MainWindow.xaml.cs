@@ -24,6 +24,7 @@ public partial class MainWindow : Window
 {
     private MainViewModel? _vm;
     private bool _allowClose;
+    private bool _closing;
 
     /// <summary>MainWindow.xaml 解析耗时（启动分解日志消费）；构造完成即有值。</summary>
     internal static long CtorInitMs { get; private set; }
@@ -230,12 +231,35 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!await _vm.RequestCloseAsync())
+        // 重入闸门：收尾期间用户再点 X（或 Alt+F4）会二次进入这里。
+        // 没有这道闸门时，第二次会再走一遍 RequestCloseAsync —— 而首次已经 Cancel 过一次，
+        // 弹窗叠弹窗；更糟的是落回下面的 CloseDeferred 把 _allowClose 提前置 true，
+        // 让下一次 Closing 直接放行，窗口在读秒收尾中被销毁（后台 Task.Run 被拦腰斩断）。
+        if (_closing)
         {
             return;
         }
 
-        CloseDeferred();
+        _closing = true;
+        try
+        {
+            if (!await _vm.RequestCloseAsync())
+            {
+                // 用户选择"不退出"：必须开闸，否则之后再也关不掉窗口。
+                _closing = false;
+                return;
+            }
+
+            CloseDeferred();
+        }
+        catch (Exception)
+        {
+            // async void 的异常会直接终结进程（用户看到的是"关窗口时闪退"）。
+            // 这里兜住并放行关闭：收尾已经走到这一步，继续挂着只会让窗口卡死。
+            // 具体异常由 MainViewModel.RequestCloseAsync 内部记日志（那里能拿到 _log）。
+            _closing = false;
+            CloseDeferred();
+        }
     }
 
     /// <summary>

@@ -80,6 +80,37 @@ internal static class Compat
 #endif
     }
 
+    /// <summary>
+    /// 单测 / 特殊宿主注入的会话号；<c>null</c> = 取真实 <c>Process.SessionId</c>。
+    /// 与 <c>ProcessId</c> 不同，这里必须可注入：CI 服务常跑在会话 0，
+    /// 不注入就无法确定性地验证"按会话收窄"这条契约。
+    /// </summary>
+    internal static int? SessionIdOverride { get; set; }
+
+    /// <summary>
+    /// 当前进程所在的终端服务会话 ID（net8 / net48 的 <c>Process.SessionId</c> 语义一致）。
+    /// 取不到时返回 0，调用方据此 fail-closed，不会发出无法按会话收窄的结束命令。
+    /// </summary>
+    public static int SessionId()
+    {
+        if (SessionIdOverride.HasValue)
+        {
+            return SessionIdOverride.Value;
+        }
+
+        try
+        {
+            using Process process = Process.GetCurrentProcess();
+            return process.SessionId;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+            or System.ComponentModel.Win32Exception
+            or PlatformNotSupportedException)
+        {
+            return 0;
+        }
+    }
+
     /// <summary>移动文件且不允许覆盖目标（等价 <c>File.Move(src, dst, overwrite: false)</c>）。</summary>
     /// <remarks>两个运行时上"目标存在即失败"的语义本来一致，这里只是把调用点收敛到一处。</remarks>
     public static void MoveNoOverwrite(string source, string destination)

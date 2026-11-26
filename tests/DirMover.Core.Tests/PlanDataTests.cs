@@ -1,12 +1,20 @@
 using DirMover.Core.Engine;
 using DirMover.Core.IO;
 using DirMover.Core.Registry;
+using Xunit.Abstractions;
 
 namespace DirMover.Core.Tests;
 
 /// <summary>T9：引擎数据契约（<see cref="PlanItem.BlockingReason"/> 顺序、摘要、节流）。</summary>
 public sealed class PlanDataTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public PlanDataTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     private static FolderSpec Spec => Catalog.ByKey("documents")!;
 
     private static PlanItem Item(string current, string target) => new()
@@ -103,6 +111,7 @@ public sealed class PlanDataTests
         string link = sandbox.Combine("link");
         if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, real))
         {
+            _output.WriteLine("[ENV-MISSING] BlockingReason_SamePhysicalLocation_IsAllowed 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
             return;
         }
 

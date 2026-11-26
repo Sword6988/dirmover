@@ -195,6 +195,22 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ShellExecuteExW(ref ShellExecuteInfo executeInfo);
 
+    /// <summary>
+    /// 把 <c>@%SystemRoot%\system32\shell32.dll,-21770</c> 这类间接串解析成当前系统 UI 语言下的文本。
+    /// </summary>
+    /// <remarks>
+    /// 导出名实测<b>没有</b> W 后缀（<c>shlwapi.dll!SHLoadIndirectString</c>），
+    /// 故必须 <c>ExactSpelling = true</c> + 显式 <c>EntryPoint</c>；否则 net48 / net8 的
+    /// CharSet 名称探测都会去找并不存在的 <c>SHLoadIndirectStringW</c>。
+    /// </remarks>
+    [DllImport("shlwapi.dll", EntryPoint = "SHLoadIndirectString", CharSet = CharSet.Unicode,
+        ExactSpelling = true, SetLastError = false)]
+    internal static extern int SHLoadIndirectString(
+        string source,
+        StringBuilder output,
+        uint outputChars,
+        IntPtr reserved);
+
     /// <summary>广播窗口消息（环境变量变更通知，预留）。</summary>
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr SendMessageTimeoutW(

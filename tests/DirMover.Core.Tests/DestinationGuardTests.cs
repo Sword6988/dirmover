@@ -1,6 +1,7 @@
 using System.Text;
 using DirMover.Core.Interop;
 using DirMover.Core.IO;
+using Xunit.Abstractions;
 
 namespace DirMover.Core.Tests;
 
@@ -14,6 +15,13 @@ namespace DirMover.Core.Tests;
 /// </remarks>
 public sealed class DestinationGuardTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public DestinationGuardTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     // ================================================================ 基本形态（1–3 条校验）
 
     [Fact]
@@ -80,6 +88,7 @@ public sealed class DestinationGuardTests
         string? letter = FindUnusedDriveLetter();
         if (letter is null)
         {
+            _output.WriteLine("[ENV-MISSING] MissingDriveIsRejected 未执行：D–Z 盘符全部存在，无法构造\"目标盘不存在\"（FindUnusedDriveLetter 返回 null），不计为通过");
             return;
         }
 
@@ -120,13 +129,14 @@ public sealed class DestinationGuardTests
         string programFiles = Path.Combine(Catalog.SystemDrive + "\\", "Program Files");
         if (!Directory.Exists(programFiles))
         {
+            _output.WriteLine($"[ENV-MISSING] EightDotThreeShortNameDoesNotBypassSystemDirectoryGuard 未执行：{programFiles} 不存在，无法构造短名形态，不计为通过");
             return;
         }
 
         string? shortName = TryGetShortName(programFiles);
         if (shortName is null)
         {
-            // 该卷未生成 8.3 名：无法构造短名形态，软跳过。
+            _output.WriteLine($"[ENV-MISSING] EightDotThreeShortNameDoesNotBypassSystemDirectoryGuard 未执行：该卷未为 {programFiles} 生成 8.3 短名（GetShortPathNameW 返回与长名一致），不计为通过");
             return;
         }
 
@@ -195,6 +205,7 @@ public sealed class DestinationGuardTests
             string link = sandbox.Combine("link");
             if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, source))
             {
+                _output.WriteLine("[ENV-MISSING] SamePhysicalLocationIsRejected 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
                 return;
             }
 
@@ -228,6 +239,7 @@ public sealed class DestinationGuardTests
 
         if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, real))
         {
+            _output.WriteLine("[ENV-MISSING] ReparseAncestorFindsJunctionInAncestorChain 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
             return;
         }
 
@@ -246,6 +258,7 @@ public sealed class DestinationGuardTests
             string link = sandbox.Combine("link");
             if (!TestEnv.CanCreateJunction || !TestEnv.TryCreateJunction(link, real))
             {
+                _output.WriteLine("[ENV-MISSING] TargetUnderJunctionIsRejectedByPlanningGate 未执行：本机无法创建目录联接点（CanCreateJunction 为假或 TryCreateJunction 失败），不计为通过");
                 return;
             }
 

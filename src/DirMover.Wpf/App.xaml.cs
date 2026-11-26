@@ -158,6 +158,11 @@ public partial class App : Application
             long tAttach0 = _boot.ElapsedMilliseconds;
             _window.Attach(viewModel);
             long tAttach1 = _boot.ElapsedMilliseconds;
+
+            // 先禁用再显示：单实例判定必须在 Show 之后（重复启动要弹窗，弹窗需要 Owner），
+            // 而 Show 到判定之间有一段窗口期。不禁用的话，第二个实例的主界面会先正常亮出来、
+            // 主按钮可用，用户在这几百毫秒里点"开始"就是两个实例并发搬运同一批目录。
+            _window.IsEnabled = false;
             _window.Show();
             _tShown = _boot.ElapsedMilliseconds;
             AttachMs = tAttach1 - tAttach0;
@@ -170,9 +175,13 @@ public partial class App : Application
             _guard = SingleInstanceGuard.Acquire(_paths, _log, out bool alreadyRunning);
             if (alreadyRunning)
             {
+                // 重复实例：窗口保持禁用，弹完提示后由 ShowAlreadyRunningAsync 自己关闭。
                 _ = ShowAlreadyRunningAsync(dialogs);
                 return true;
             }
+
+            // 本实例是唯一实例，放开交互。
+            _window.IsEnabled = true;
 
             if (_args.IsCliOnly)
             {

@@ -173,6 +173,8 @@ public sealed class MainViewModel : ObservableObject
     private bool _allSelected = true;
     private bool _suppressSync;
     private bool _workRunning;
+    private bool _startPending;
+    private bool _interactionEnabled = true;
     private bool _exitRequested;
     private bool _isLogLinkVisible;
     private bool _isElevated;
@@ -195,6 +197,10 @@ public sealed class MainViewModel : ObservableObject
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _drives = drives ?? Array.Empty<DriveVolume>();
+
+        // 重启 explorer 的每一步（PID 快照、taskkill 退出码、拉起通道、存活确认）都必须落日志：
+        // 这是全流程唯一"主动杀用户桌面"的环节，报障时没有这些就只剩一句"无法自动拉起"。
+        ShellIntegration.DiagnosticsSink = message => _log.Info(message);
 
         _config = RunConfig.CreateDefault(_drives, engine.DryRun);
         Columns = new TableColumnLayout(DispatcherQueue.GetForCurrentThread());
@@ -365,8 +371,40 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>主按钮是否可用。</summary>
     public bool IsPrimaryEnabled => _primaryCommand.CanExecute(null);
 
-    /// <summary>是否处于"不可编辑输入"的状态（执行中 / 收尾中）。</summary>
-    public bool IsInputEnabled => _phase == VmPhase.Idle;
+    /// <summary>是否处于"不可编辑输入"的状态（执行中 / 收尾中 / 外部尚未就绪）。</summary>
+    public bool IsInputEnabled => _phase == VmPhase.Idle && _interactionEnabled;
+
+    /// <summary>
+    /// 外部就绪开关：宿主在"还不能让用户动手"的阶段置 <c>false</c>（当前唯一用途是
+    /// 单实例判定之前的那段窗口期）。
+    /// </summary>
+    /// <remarks>
+    /// 为什么放在视图模型而不是给窗口设 <c>IsEnabled</c>：WinUI 的窗口内容是根 Grid
+    /// （<c>Panel</c> → <c>FrameworkElement</c>），没有 <c>IsEnabled</c>；而 <c>IsHitTestVisible</c>
+    /// 只挡鼠标、挡不住键盘（Tab 到主按钮再按空格照样触发）。开关落在这里，一次就能同时
+    /// 约束主按钮、恢复按钮、全选框和每行的勾选框 —— 那些全都读 <see cref="IsInputEnabled"/>。
+    /// </remarks>
+    public bool InteractionEnabled
+    {
+        get => _interactionEnabled;
+        set
+        {
+            if (_interactionEnabled == value)
+            {
+                return;
+            }
+
+            _interactionEnabled = value;
+            RaiseProperties(
+                nameof(InteractionEnabled),
+                nameof(IsInputEnabled),
+                nameof(IsPrimaryEnabled),
+                nameof(CanToggleSelectAll));
+            _primaryCommand.RaiseCanExecuteChanged();
+            _restoreCommand.RaiseCanExecuteChanged();
+            SyncRowEditability();
+        }
+    }
 
     /// <summary>
     /// 全选框是否可勾：输入空闲 <b>且</b> 存在可转移行。
@@ -545,35 +583,54 @@ public sealed class MainViewModel : ObservableObject
             return true;
         }
 
-        if (!await _dialogs.ConfirmExitWhileBusyAsync(_workRunning))
+        // Restarting 阶段不是"可中断的引擎任务"：它只是等 explorer 回来，不碰用户数据，
+        // 而 _cts 此时为 null（没有可取消的对象），旧实现会白等满 ExitFinishTimeout 才放行，
+        // 用户看到的是"关窗口要卡一分钟"。这里直接放行：重启流程由 ShellIntegration
+        // 自己的超时兜底，窗口关掉不影响它把 explorer 拉起来。
+        if (!_workRunning)
         {
-            return false;
+            _exitRequested = true;
+            _log.Info($"收尾时处于阶段 {_phase}（无引擎任务在跑），不等待，直接关闭");
+            return true;
         }
 
-        _exitRequested = true;
-
-        // 可中断阶段：先置取消位，让引擎在下一个检查点收尾（它自己会保证"不删源、不写注册表"）。
-        if (_workRunning)
+        try
         {
+            if (!await _dialogs.ConfirmExitWhileBusyAsync(_workRunning))
+            {
+                return false;
+            }
+
+            _exitRequested = true;
+
+            // 可中断阶段：先置取消位，让引擎在下一个检查点收尾（它自己会保证"不删源、不写注册表"）。
             _cts?.Cancel();
+
+            SetPhase(VmPhase.Closing);
+            StatusText = UiText.SafeShutdown;
+
+            DateTime deadline = DateTime.UtcNow + Catalog.ExitFinishTimeout;
+            while (IsBusy && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(Catalog.ExitFinishPollInterval);
+            }
+
+            if (IsBusy)
+            {
+                // 超时后强制关闭是刻意选择：卡住的项已经无法保证进度，继续挂着只会让用户以为程序死了。
+                _log.Error($"关窗收尾超时（阶段 {_phase}），强制关闭", null);
+            }
+
+            return true;
         }
-
-        SetPhase(VmPhase.Closing);
-        StatusText = UiText.SafeShutdown;
-
-        DateTime deadline = DateTime.UtcNow + Catalog.ExitFinishTimeout;
-        while (IsBusy && DateTime.UtcNow < deadline)
+        catch (Exception ex)
         {
-            await Task.Delay(Catalog.ExitFinishPollInterval);
+            // 收尾本身抛异常（弹窗服务失败、Delay 被中断等）不能让窗口关不掉。
+            // 放行是最安全的：引擎的取消位已置，它会在下一个检查点自行收尾，不删源也不写注册表。
+            _log.Error("关窗收尾失败，改为放行关闭", ex);
+            _exitRequested = true;
+            return true;
         }
-
-        if (IsBusy)
-        {
-            // 超时后强制关闭是刻意选择：卡住的项已经无法保证进度，继续挂着只会让用户以为程序死了。
-            _log.Error($"关窗收尾超时（阶段 {_phase}），强制关闭", null);
-        }
-
-        return true;
     }
 
     private void BuildRows()
@@ -763,6 +820,12 @@ public sealed class MainViewModel : ObservableObject
 
     private bool CanPrimary()
     {
+        if (!_interactionEnabled)
+        {
+            // 外部尚未就绪（单实例判定之前）：主按钮一律不可用，连"点两次变停止"也不给。
+            return false;
+        }
+
         return _phase switch
         {
             VmPhase.Running => true,
@@ -771,7 +834,7 @@ public sealed class MainViewModel : ObservableObject
         };
     }
 
-    private bool CanRestore() => _phase == VmPhase.Idle && CountRestorable() > 0;
+    private bool CanRestore() => _interactionEnabled && _phase == VmPhase.Idle && CountRestorable() > 0;
 
     /// <summary>
     /// 某一行是否值得恢复：当前位置与系统出厂默认位置不是同一路径。
@@ -802,6 +865,13 @@ public sealed class MainViewModel : ObservableObject
 
     private void OnPrimary()
     {
+        // 键盘快捷键（Ctrl+Enter）不经过 CanExecute，只靠按钮"变灰"挡不住它，
+        // 所以这道判定必须在命令体里再做一次。
+        if (!_interactionEnabled)
+        {
+            return;
+        }
+
         if (_phase == VmPhase.Running)
         {
             Stop();
@@ -812,6 +882,21 @@ public sealed class MainViewModel : ObservableObject
         {
             return;
         }
+
+        // 同步重入闸门（与 _phase 分开）。
+        //
+        // _phase 要到 ExecuteCoreAsync 里才变成 Running，而 StartTransferAsync 在此之前
+        // 还有 await 确认框等异步步骤。这段窗口期内 _phase 仍是 Idle，于是：
+        //   · 鼠标双击、或 Ctrl+Enter 的 KeyBinding（不经过 CanExecute）能二次进入；
+        //   · 两次都会走完确认框，然后各自建自己的 CTS 跑同一份计划 ——
+        //     同一批目录被两个引擎实例并发搬运，是会真的损坏数据的。
+        // 置位必须发生在任何 await 之前的同一线程上，所以放在这里而不是 StartTransferAsync 内。
+        if (_startPending)
+        {
+            return;
+        }
+
+        _startPending = true;
 
         // 不 `_ = StartTransferAsync()` 直接丢弃：主按钮是同步命令，
         // 一旦异步体抛异常就没有任何 catch，WinUI 会把它变成"点一下程序消失"。
@@ -827,6 +912,11 @@ public sealed class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             OnCommandError(ex);
+        }
+        finally
+        {
+            // 无论从哪条路径退出都要开闸，否则一次异常会让主按钮永久失效（点不动也没提示）。
+            _startPending = false;
         }
     }
 
@@ -1058,6 +1148,20 @@ public sealed class MainViewModel : ObservableObject
             }
         }
 
+        // 与 RecomputePlan 对齐：转移完成后这些行的"当前位置 == 目标"已成立，
+        // CanSelect 变成 false，而 IsSelected 还停在 true —— 摘要会显示"已选择 N 项"、
+        // 全选框也还亮着，可实际上没有一项可执行。用户点一下全选框，那些已完成的
+        // 绿色行会被切成 Disabled（绿色消失），与"结果保留到下次刷新"的约定相悖。
+        SyncRowSelection();
+        SyncAllSelected(CountSelected());
+
+        RaisePropertyChanged(nameof(SelectionSummary));
+        RaisePropertyChanged(nameof(ShowEmptyState));
+        RaisePropertyChanged(nameof(CanToggleSelectAll));
+        RaisePropertyChanged(nameof(PrimaryButtonText));
+        RaisePropertyChanged(nameof(IsPrimaryEnabled));
+        _primaryCommand.RaiseCanExecuteChanged();
+
         // 执行结束后"当前位置"变了，恢复按钮的可用性跟着变（同 RecomputePlan 的处理）。
         _restoreCommand.RaiseCanExecuteChanged();
     }
@@ -1256,11 +1360,22 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             ShellOpResult result = await ShellIntegration.RestartExplorerAsync();
+            // 分步日志已由 DiagnosticsSink 落盘，这里再记一条最终结论，方便从日志尾部直接看结果。
+            _log.Info(result.Ok ? "重启资源管理器：成功" : $"重启资源管理器：失败（{result.Message}）");
             StatusText = result.Ok ? UiText.Ready : result.Message;
             if (!result.Ok)
             {
                 IsLogLinkVisible = true;
             }
+        }
+        catch (Exception ex)
+        {
+            // 这一步跑在 ExecuteCoreAsync 的 finally 之后（此时 IsBusy 已是 false），
+            // 异常若冒出去只会变成一条"界面命令执行失败"，而资源管理器可能已经被杀掉了。
+            // 必须显式告知"请手动运行 explorer.exe"，否则用户面对的是一个没有桌面的屏幕。
+            _log.Error("重启资源管理器失败", ex);
+            StatusText = UiText.ShellRestartManual;
+            IsLogLinkVisible = true;
         }
         finally
         {
@@ -1316,9 +1431,20 @@ public sealed class MainViewModel : ObservableObject
         _primaryCommand.RaiseCanExecuteChanged();
         _restoreCommand.RaiseCanExecuteChanged();
 
-        // 行内勾选框的可操作性要跟着阶段走。行模板只能用 {Binding}（硬前提 2），
-        // 所以"可编辑"必须落到每一行上，而不能在模板里指回列表控件。
-        bool editable = phase == VmPhase.Idle;
+        SyncRowEditability();
+    }
+
+    /// <summary>
+    /// 把"可编辑"下发到每一行。
+    /// </summary>
+    /// <remarks>
+    /// 行内勾选框的可操作性要跟着阶段走。行模板只能用 <c>{Binding}</c>（硬前提 2），
+    /// 所以"可编辑"必须落到每一行上，而不能在模板里指回列表控件。
+    /// 阶段变化与 <see cref="InteractionEnabled"/> 变化都走这里，避免两处各写一份判定。
+    /// </remarks>
+    private void SyncRowEditability()
+    {
+        bool editable = _phase == VmPhase.Idle && _interactionEnabled;
         foreach (FolderRowViewModel row in _rows)
         {
             row.IsEditable = editable;
