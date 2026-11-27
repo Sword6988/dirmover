@@ -26,8 +26,6 @@ public sealed class TransferEngine
     private readonly bool _dryRun;
     private readonly IAppLog _log;
 
-    private string? _lastResolveError;
-
     /// <summary>构造。</summary>
     /// <param name="store">注册表封装。</param>
     /// <param name="backupDir">备份目录（快照 + 意图日志）；试运行可传 <c>null</c>。</param>
@@ -54,24 +52,30 @@ public sealed class TransferEngine
     /// </summary>
     /// <param name="spec">文件夹规格。</param>
     /// <remarks>
-    /// 读失败<b>不阻断</b>（回退到系统默认，让界面仍能显示一个位置），但会记 warning 并置
-    /// <see cref="TransferEngine"/> 内部的"最近解析错误"，随后 <see cref="BuildPlan"/> 把它
-    /// 变成该项的 <see cref="PlanItem.InvalidReason"/>（fail-closed）。
+    /// 读失败<b>不阻断</b>（回退到系统默认，让界面仍能显示一个位置），但会记 warning 并返回回退位置；
+    /// <see cref="BuildPlan"/> / <see cref="BuildRestorePlan"/> 通过内部重载单独取错误做 fail-closed。
     /// </remarks>
-    public string ResolveCurrent(FolderSpec spec)
+    public string ResolveCurrent(FolderSpec spec) => ResolveCurrentCore(spec, out _);
+
+    /// <summary>
+    /// 解析当前位置，并把本项的读取错误单独交给调用方（不落在共享可变字段上）。
+    /// </summary>
+    /// <param name="spec">文件夹规格。</param>
+    /// <param name="error">本项读取失败的原因；无失败为 <c>null</c>。</param>
+    private string ResolveCurrentCore(FolderSpec spec, out string? error)
     {
         ArgumentNullException.ThrowIfNull(spec);
-        _lastResolveError = null;
 
         string raw = _store.GetText(Catalog.UserShellFoldersSubKey, spec.ValueName, expand: false);
-        string? readError = _store.ConsumeReadError();
+        error = _store.ConsumeReadError();
 
         if (string.IsNullOrWhiteSpace(raw) && spec.Aliases is { Count: > 0 })
         {
             foreach (string alias in spec.Aliases)
             {
                 raw = _store.GetText(Catalog.UserShellFoldersSubKey, alias, expand: false);
-                readError ??= _store.ConsumeReadError();
+                string? aliasError = _store.ConsumeReadError();
+                error ??= aliasError;
                 if (!string.IsNullOrWhiteSpace(raw))
                 {
                     break;
@@ -79,10 +83,9 @@ public sealed class TransferEngine
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(readError))
+        if (!string.IsNullOrWhiteSpace(error))
         {
-            _lastResolveError = readError;
-            _log.Warn($"{spec.Display}：当前位置读取失败，暂按系统默认位置处理（结果可能不准）：{readError}");
+            _log.Warn($"{spec.Display}：当前位置读取失败，暂按系统默认位置处理（结果可能不准）：{error}");
         }
 
         if (string.IsNullOrWhiteSpace(raw))
@@ -172,7 +175,7 @@ public sealed class TransferEngine
         config.Normalize();
 
         List<string> keys = NormalizeKeys(selectedKeys);
-        var resolved = new List<(FolderSpec Spec, string Current)>(keys.Count);
+        var resolved = new List<(FolderSpec Spec, string Current, string? ResolveError)>(keys.Count);
         foreach (string key in keys)
         {
             FolderSpec? spec = Catalog.ByKey(key);
@@ -183,11 +186,12 @@ public sealed class TransferEngine
                 continue;
             }
 
-            resolved.Add((spec, ResolveCurrent(spec)));
+            string current = ResolveCurrentCore(spec, out string? error);
+            resolved.Add((spec, current, error));
         }
 
         var sources = new List<string>(resolved.Count);
-        foreach ((_, string current) in resolved)
+        foreach ((_, string current, _) in resolved)
         {
             if (!string.IsNullOrWhiteSpace(current))
             {
@@ -196,8 +200,9 @@ public sealed class TransferEngine
         }
 
         var items = new List<PlanItem>(resolved.Count);
-        foreach ((FolderSpec spec, string current) in resolved)
+        foreach ((FolderSpec spec, string current, string? error) in resolved)
         {
+            string resolveError = error ?? string.Empty;
             string target = config.ComposeTarget(spec, current, userName);
             var item = new PlanItem
             {
@@ -212,9 +217,6 @@ public sealed class TransferEngine
             item.TargetExists = PathTools.Exists(target);
             item.Merge = item.TargetExists && !item.Same;
 
-            // 拷到局部 string：字段不做流收窄，net48 引用程序集又缺 NotNullWhen 注解，
-            // 直接传 _lastResolveError 会报 CS8604（net8 侧无感，行为不变）。
-            string resolveError = _lastResolveError ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(resolveError))
             {
                 item.InvalidReason = UiText.RegistryReadFailed(resolveError);
@@ -336,7 +338,8 @@ public sealed class TransferEngine
                 continue;
             }
 
-            string current = ResolveCurrent(spec);
+            string current = ResolveCurrentCore(spec, out string? error);
+            string resolveError = error ?? string.Empty;
             string target = PathTools.Expand(spec.DefaultPath);
 
             var item = new PlanItem
@@ -353,9 +356,6 @@ public sealed class TransferEngine
             item.Merge = item.TargetExists && !item.Same;
             item.RegistryOnly = !string.IsNullOrWhiteSpace(current) && !PathTools.Exists(current);
 
-            // 拷到局部 string：字段不做流收窄，net48 引用程序集又缺 NotNullWhen 注解，
-            // 直接传 _lastResolveError 会报 CS8604（net8 侧无感，行为不变）。
-            string resolveError = _lastResolveError ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(resolveError))
             {
                 item.InvalidReason = UiText.RegistryReadFailed(resolveError);

@@ -131,9 +131,11 @@ public static class Catalog
     // ------------------------------------------------------------------ 7 项规格（顺序即界面顺序）
 
     /// <remarks>
-    /// 规格表里<b>刻意不放</b>"目标目录名"这一列：那个名字必须按<b>运行机器</b>的 UI 语言在
-    /// 运行时解析（见 <see cref="IO.FolderDisplayName"/>），任何写死的语言都会把别的机器改错。
-    /// <c>DefaultPath</c> 的英文物理名只在"恢复默认值"时写回注册表，不作为目标叶子名。
+    /// 规格表里<b>不设</b>独立的"目标目录名"列：磁盘目标叶子名固定取 <c>DefaultPath</c> 的
+    /// 英文物理名（<c>RunConfig.ComposeTarget</c> 用 <c>PathTools.TailName</c> 合成），在任何
+    /// UI 语言环境下都保持稳定；中文显示名由 <see cref="IO.FolderDisplayName"/> 的
+    /// <c>ApplyToDirectory</c> 在移动/复制前先从源缓存、校验通过后写进目标目录的
+    /// <c>desktop.ini</c>，只影响显示，不参与任何路径合成。
     /// </remarks>
     private static readonly IReadOnlyList<FolderSpec> FolderList = new FolderSpec[]
     {

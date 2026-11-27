@@ -18,9 +18,9 @@ BODY = """# DirMover 3.0.2（C# 重写版，WinUI 3 / WPF 双宿主）
 ## 本轮重点修复
 
 - **Bug 1（重启资源管理器）实机闭环**：原实现在 `System32` 下找 `explorer.exe`（该文件实际在 `%WINDIR%`），导致拉起必失败（日志 `Win32Error=2`）。已改 `%WINDIR%\\explorer.exe`，拉起降级改真 CreateProcess，存活确认改 250ms 轮询（10s 预算 + 补拉一轮），杀掉 → 确认退出 → 拉起 → 存活全流程落诊断日志。
-- **Bug 2（目录名变英文）**：desktop.ini 本地化名解析链（`FolderDisplayName`，`SHLoadIndirectString` 按 MUI 语言），实机 `--scan` 验证 7 项显示名全部中文。
+- **Bug 2（目录名变英文）**：磁盘路径保持英文物理名（`DefaultPath` 叶子）；中文显示名通过目标目录 desktop.ini 的 `LocalizedResourceName` 实现，源显示名在移动/复制前缓存。
 - **全面审计修复 12 处**：链接重建 fail-closed、目标重叠阻断（防静默合并）、UI 重入闸门、单实例提前禁交互、空清单复核、TryReuse mtime 对齐等。
-- 测试 **317/317** 全绿（0 失败 0 跳过）；Core / WPF / WinUI 三处 Rebuild 0 警告 0 错误。
+- 测试 **320/320** 全绿（0 失败 0 跳过）；Core / WPF / WinUI 三处 Rebuild 0 警告 0 错误。
 
 ## 交付物
 
@@ -81,7 +81,7 @@ opener = urllib.request.build_opener(handler)
 payload = json.dumps({
     "tag_name": TAG,
     "target_commitish": "winui3",
-    "name": f"DirMover {TAG[1:]} — C# 重写版（Bug1/Bug2 实机闭环 + 全面审计修复）",
+    "name": f"DirMover {TAG[1:]} — C# 重写版（英文物理路径 + 中文显示 + 全面审计修复）",
     "body": BODY,
     "draft": False,
     "prerelease": False,

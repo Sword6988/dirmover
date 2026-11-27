@@ -309,6 +309,48 @@ public sealed class TransferEngineTests
     }
 
     [Fact]
+    public void BuildPlan_RegistryReadFailure_OnlyAffectsFailingItem()
+    {
+        // 回归 H-1：3 项里只让中间项（pictures 的权威值名）读失败。
+        // 旧实现把整批的 InvalidReason 都取自"最后一次 ResolveCurrent 的错误"，
+        // 于是中间项的失败被静默放过、最后一项的成功反而可能误伤整批。
+        using var env = new EngineEnv("engine-mid-readfail");
+        string documentsSrc = env.Sandbox.CreateDirectoryPath("src-documents");
+        string picturesSrc = env.Sandbox.CreateDirectoryPath("src-pictures");
+        string musicSrc = env.Sandbox.CreateDirectoryPath("src-music");
+
+        var seed = new RegistrySeed()
+            .Add(Catalog.UserShellFoldersSubKey, "Personal", documentsSrc)
+            .Add(Catalog.UserShellFoldersSubKey, "My Pictures", picturesSrc)
+            .Add(Catalog.UserShellFoldersSubKey, "My Music", musicSrc);
+
+        var backend = new FailingValueRegistryBackend(
+            seed.ToBackend(),
+            Catalog.UserShellFoldersSubKey,
+            "My Pictures");
+        var log = new FakeLog();
+        var engine = new TransferEngine(new RegistryStore(backend, log), backupDir: null, dryRun: false, log);
+
+        IReadOnlyList<PlanItem> plan = engine.BuildPlan(
+            new[] { "documents", "pictures", "music" },
+            @"D:\UserData",
+            createUserDirectory: false,
+            userName: "tester",
+            scan: false);
+
+        // 目标根取非系统盘，避开沙箱所在 C:\Users 的规划期禁区；三项目标各自独立。
+        Assert.Equal(3, plan.Count);
+        Assert.Equal("documents", plan[0].Spec.Key);
+        Assert.Equal("pictures", plan[1].Spec.Key);
+        Assert.Equal("music", plan[2].Spec.Key);
+
+        Assert.Equal(string.Empty, plan[0].InvalidReason);
+        Assert.Contains("读取注册表失败", plan[1].InvalidReason, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, plan[2].InvalidReason);
+        Assert.All(plan, item => Assert.NotEqual(string.Empty, item.Target));
+    }
+
+    [Fact]
     public void BuildRestorePlan_MissingSource_IsRegistryOnlyAndKeepsPercentForm()
     {
         using var env = new EngineEnv("engine-restore");
@@ -510,6 +552,44 @@ public sealed class TransferEngineTests
         };
 
         public void Dispose() => Sandbox.Dispose();
+    }
+
+    /// <summary>
+    /// 只让指定 (子键, 值名) 读失败的后端：验证"读失败只影响本项"，其余读取委托给内存后端。
+    /// </summary>
+    private sealed class FailingValueRegistryBackend : IRegistryBackend
+    {
+        private readonly IRegistryBackend _inner;
+        private readonly string _failingSubKey;
+        private readonly string _failingName;
+
+        internal FailingValueRegistryBackend(IRegistryBackend inner, string failingSubKey, string failingName)
+        {
+            _inner = inner;
+            _failingSubKey = failingSubKey;
+            _failingName = failingName;
+        }
+
+        public RegistryValue? ReadValue(string subKey, string name)
+        {
+            if (string.Equals(subKey, _failingSubKey, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(name, _failingName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new RegistryReadException($"注入的读取失败：HKEY_CURRENT_USER\\{subKey}\\{name}");
+            }
+
+            return _inner.ReadValue(subKey, name);
+        }
+
+        public RegistryValue? ReadHklmValue(string subKey, string name) => _inner.ReadHklmValue(subKey, name);
+
+        public void WriteValue(string subKey, string name, object data, Microsoft.Win32.RegistryValueKind kind) =>
+            _inner.WriteValue(subKey, name, data, kind);
+
+        public void DeleteValue(string subKey, string name) => _inner.DeleteValue(subKey, name);
+
+        public IReadOnlyDictionary<string, RegistryValue> EnumerateValues(string subKey) =>
+            _inner.EnumerateValues(subKey);
     }
 
     /// <summary>一切读写都抛 <see cref="RegistryReadException"/> 的后端（测 fail-closed）。</summary>
