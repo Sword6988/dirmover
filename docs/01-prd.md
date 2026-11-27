@@ -82,8 +82,10 @@
 | 目标根为空（无可用盘） | 目标 = 当前位置 | 该项恒为「无需转移」，主按钮禁用 |
 | 恢复默认值 | `%USERPROFILE%\<默认子目录>` | 不走目标根拼接；注册表写入**保留 `%USERPROFILE%` 形式** |
 
-- **基名** = 源目录在**运行机器**上的本地化显示名，取自该目录 `desktop.ini` 的 `[.ShellClassInfo] LocalizedResourceName`（`@` 开头的间接串按本机 MUI 语言解析后使用），并须通过"可作目录名"校验；**取不到或非法时回退为当前实际路径的最后一段物理目录名**。
-  - 为什么不是"最后一段目录名优先"：中文/日文 Windows 上 `%USERPROFILE%\Documents` 的**物理名是英文**，本地化显示名只存在于 `desktop.ini`。复制过程不保留该文件的 Hidden/System 属性，shell 因此回退显示英文——这正是「名称变英文」Bug 的成因。若基名取物理尾名，判据本身就错了。
+- **基名** = `Catalog.FolderSpec.DefaultPath` 的最后一段，即 Windows 出厂**英文物理名**（`Documents` / `Downloads` / `Desktop` ……）。磁盘目录名、注册表路径、程序内部路径全部使用这个英文名。
+  - **中文显示名不参与路径合成**。目标目录的中文名由 `desktop.ini` 的 `[.ShellClassInfo] LocalizedResourceName` 提供，只影响资源管理器与快速访问的显示；文件读写与路径引用始终走英文路径。
+  - 显示名资源取自源目录 `desktop.ini` 的**原始值**（`@` 开头的间接串原样写回，不解析成某种语言的文本），写回时保留目标 `desktop.ini` 的其它段，并设置目录 System / ini Hidden+System 属性，Shell 才会应用显示名。
+  - 不读取 `currentPath` 的物理尾名：上一次误修复可能已把源目录改成中文名，从那里取会把错误延续下去。
   - 基名**不来自** `Catalog.FolderSpec.Display`（如「我的文档」）：那是纯界面标签，写进路径等于又硬编码一种语言。
   - Core 内**不得出现任何语言的目录名字面量**（有单测兜底），因为运行机器可能是简体/繁体中文、日文或英文系统。
 - 目标根目录**不可自由填写**：取值恒为 `<盘>:\UserData`，盘符来自**非系统固定盘**（`DriveType.Fixed`，U 盘/光驱/网络盘不计）。

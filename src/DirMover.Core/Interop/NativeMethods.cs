@@ -195,6 +195,14 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ShellExecuteExW(ref ShellExecuteInfo executeInfo);
 
+    /// <summary>通知 Shell 资源/关联发生变化（写入 desktop.ini 后刷新显示名）。</summary>
+    [DllImport("shell32.dll", SetLastError = false)]
+    internal static extern void SHChangeNotify(
+        int wEventId,
+        uint uFlags,
+        IntPtr dwItem1,
+        IntPtr dwItem2);
+
     /// <summary>
     /// 把 <c>@%SystemRoot%\system32\shell32.dll,-21770</c> 这类间接串解析成当前系统 UI 语言下的文本。
     /// </summary>

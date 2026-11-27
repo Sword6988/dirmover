@@ -12,7 +12,8 @@ namespace DirMover.Core.Engine;
 /// <remarks>
 /// 单项事务的顺序是<b>写死的</b>，不可配置（架构 §3.7 契约 4）：
 /// 执行期重解析点检查（建目录<b>之前</b>）→ 建父目录 → 原子改名（A 路径）→ 否则复制合并 →
-/// 全量校验 → 写注册表（本项快照 + 就地回滚）→ 删源前两道闸门 + 一次链接复检 → 删源 → 注销意图。
+/// 全量校验 → 把源目录的本地化显示名写进目标 desktop.ini（只改显示，不改路径）→
+/// 写注册表（本项快照 + 就地回滚）→ 删源前两道闸门 + 一次链接复检 → 删源 → 注销意图。
 /// <para>
 /// 为什么顺序不能变：任何一步提前，都会出现"注册表已指向目标但数据没校验过"或"源目录已被删
 /// 但目标只剩半份"的窗口。事务的意义就在于这个窗口不存在。
@@ -257,15 +258,15 @@ public sealed class TransferEngine
     /// <remarks>
     /// <b>为什么必须单独查一遍</b>：<see cref="DestinationGuard.ValidateDestination"/> 只校验
     /// "目标不在任何一个<b>源</b>里"，是目标对源的一对一判定；它不检查两项目标<b>彼此</b>是否重叠。
-    /// 而目标路径来自<b>运行时解析的本地化名</b>（可被 desktop.ini 自定义），所以两个项算出同一个
-    /// 目标是可达的 —— 例如某个文件夹的显示名被改成了当前用户名，就会与"创建用户目录"那一层撞车。
+    /// 现在目标叶子名固定取规格表里的英文物理名，正常规划下不再撞车；本方法保留为<b>防御性闸门</b>，
+    /// 防止以后有人再引入按运行时显示名/用户目录名拼接目标的改动。
     /// <para>
     /// 撞车后果不是"报错"，而是<b>静默合并</b>：第一项搬完并删源，第二项执行时看到目标已存在
     /// 就走 <c>Merge</c> 分支，两份内容混进同一个目录，两个注册表值都指向它，用户的"一个文件夹"
     /// 就这么消失了。这种损坏不可逆，所以两项一起阻断（宁可都不做，也不合并）。
     /// </para>
     /// </remarks>
-    private void BlockOverlappingTargets(List<PlanItem> items)
+    internal void BlockOverlappingTargets(List<PlanItem> items)
     {
         for (int i = 0; i < items.Count; i++)
         {
@@ -552,6 +553,10 @@ public sealed class TransferEngine
             return Make(item, ItemStatus.Skipped, UiText.StatusSame, TransferStage.Pending);
         }
 
+        // 必须在移动/复制之前读：同卷 rename 通道会把整个源目录搬走，
+        // 事后再读 item.Current 已经不存在，显示名就会静默丢失。
+        string? displayResource = FolderDisplayName.ReadRawResourceName(item.Current);
+
         // 界面常态不扫描规模；真正动手前必须补一次，否则空间闸门拿不到内容体积（等于没闸门）。
         if (!item.Scanned && !item.RegistryOnly && item.NeedsMove)
         {
@@ -655,6 +660,31 @@ public sealed class TransferEngine
                     ItemStatus.Failed,
                     UiText.VerifyFailed(verify.Detail),
                     TransferStage.VerifyFailed);
+            }
+        }
+
+        // 显示名落到 desktop.ini：只改资源管理器/快速访问的显示，不改磁盘路径。
+        // 放在复制/校验之后、写注册表之前；失败就保留源、不写注册表，
+        // 避免留下"英文路径但显示名丢失"的半完成态。rename 通道同样走这里。
+        // net48 引用程序集缺 NotNullWhen 注解，IsNullOrWhiteSpace 不会收窄；拷到局部 string 消除 CS8604。
+        string displayNameResource = displayResource ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(displayNameResource))
+        {
+            OpResult displayApplied = FolderDisplayName.ApplyToDirectory(item.Target, displayNameResource);
+            if (!displayApplied.Ok)
+            {
+                string message = UiText.DisplayNameApplyFailed(displayApplied.Message, item.Target);
+                if (renamed)
+                {
+                    // rename 通道源已经搬走，必须搬回去，否则"源目录已保留"是假话。
+                    MoveResult back = FsOps.TryAtomicMove(item.Target, item.Current);
+                    message += "；" + (back.Moved
+                        ? UiText.MovedBackToCurrent(item.Target, item.Current)
+                        : UiText.DataAtTargetNoRegistryChange(item.Target));
+                }
+
+                journal.Finish(item);
+                return Make(item, ItemStatus.Failed, message, TransferStage.CopyFailed);
             }
         }
 

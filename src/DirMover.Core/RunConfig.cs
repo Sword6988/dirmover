@@ -79,26 +79,23 @@ public sealed class RunConfig
     }
 
     /// <summary>
-    /// 按 PRD §2.1 合成目标路径：<c>&lt;根&gt;\&lt;用户名&gt;\&lt;本地化目录名&gt;</c> 或
-    /// <c>&lt;根&gt;\&lt;本地化目录名&gt;</c>。
+    /// 按 PRD §2.1 合成目标路径：<c>&lt;根&gt;\&lt;用户名&gt;\&lt;英文物理目录名&gt;</c> 或
+    /// <c>&lt;根&gt;\&lt;英文物理目录名&gt;</c>。
     /// </summary>
-    /// <param name="spec">文件夹规格（只用于校验与日志；<b>不</b>提供目录名）。</param>
-    /// <param name="currentPath">当前位置（从它的 desktop.ini 解析本机本地化显示名）。</param>
+    /// <param name="spec">文件夹规格（其 <see cref="FolderSpec.DefaultPath"/> 提供英文物理叶子名）。</param>
+    /// <param name="currentPath">当前位置（只用于空根时原样返回，不参与目录名合成）。</param>
     /// <param name="userName">当前用户名（<see cref="Environment.UserName"/>）。</param>
     /// <returns>
     /// 目标绝对路径；当 <see cref="DestinationRoot"/> 为空（没有任何可用目标盘）时
     /// <b>原样返回当前位置</b>——这样 <c>Same</c> 判定自然为真，该项恒为「无需转移」。
     /// </returns>
     /// <remarks>
-    /// <b>目标叶子名不能取源路径最后一段的物理名</b>：中文/日文 Windows 上
-    /// <c>%USERPROFILE%\Documents</c> 的物理名是英文，本地化显示名来自目录内
-    /// <c>desktop.ini</c>。复制路径不会保留 <c>desktop.ini</c> 的 Hidden/System 属性，
-    /// shell 因此回退显示英文物理名 —— 界面目标列、导航窗格、盘上目录名会一起变英文。
+    /// <b>磁盘路径必须是英文。</b>目标叶子名取 <see cref="FolderSpec.DefaultPath"/> 的最后一段，
+    /// 即 Windows 出厂物理名（Documents / Downloads / Desktop ……）。源目录 <c>desktop.ini</c>
+    /// 里的本地化显示名（中文/日文/……）<b>绝不</b>拿来当磁盘目录名或注册表路径。
     /// <para>
-    /// 修复口径：<see cref="FolderDisplayName.Resolve"/> 在<b>运行机器上</b>读取并解析该
-    /// <c>desktop.ini</c> 的 <c>LocalizedResourceName</c>，用它当物理目录名。解析不到时退回
-    /// <see cref="PathTools.TailName"/>(物理名)。两条路径都不含任何语言的字面量，
-    /// 因此与运行机器、系统 UI 语言、用户自定义名全部解耦。
+    /// 中文显示由 <see cref="FolderDisplayName.ApplyToDirectory"/> 在复制成功后写入目标目录的
+    /// <c>desktop.ini</c> 实现：资源管理器和快速访问显示中文，文件读写与路径引用仍走英文路径。
     /// </para>
     /// </remarks>
     public string ComposeTarget(FolderSpec spec, string currentPath, string userName)
@@ -111,16 +108,12 @@ public sealed class RunConfig
             return (currentPath ?? string.Empty).Trim();
         }
 
-        string? localized = FolderDisplayName.Resolve(currentPath);
-        string baseName = localized ?? string.Empty;
+        // 只从规格表的英文出厂路径取叶子名。不读 currentPath 的物理尾名：
+        // 上一次误修复可能已经把源目录改成了中文名，再从那里取会把错误延续下去。
+        string baseName = PathTools.TailName(spec.DefaultPath);
         if (baseName.Length == 0)
         {
-            baseName = PathTools.TailName(currentPath);
-        }
-
-        if (baseName.Length == 0)
-        {
-            // 既没有本地化名也没有物理基名：不造名字，退回原路径让 Same 判定接管。
+            // 规格表异常：不造名字，退回原路径让 Same 判定接管。
             return (currentPath ?? string.Empty).Trim();
         }
 

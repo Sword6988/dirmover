@@ -180,6 +180,7 @@ docs/                         研究简报、PRD、架构、验收清单、类�
 14. **列宽是纯函数**：`Fit(needs, minimums, quotas, available)` 最大余数法，各列之和**恒等于**可用宽；保护列（名称/状态）不压缩；同输入同输出；`GridLength` 每次返回新实例（struct 复用不触发刷新）。
 15. **单实例**：`Local\DirMover_Single` 命名互斥体 + PID 文件 + 镜像名存活校验。两个进程同时删源是与红线同级的风险。
 16. **explorer 重启要查 `AutoRestartShell`**：HKLM `Winlogon` 三态（1 或不存在 → 允许，0 → 跳过，读失败 → fail-closed 跳过）；拉回 explorer 用**未提权令牌**，否则资源管理器会长期以高完整性运行。
+17. **英文路径 + 中文显示分离**：磁盘目录名与注册表路径固定取 `FolderSpec.DefaultPath` 的英文物理名；源目录 `desktop.ini` 的原始 `LocalizedResourceName` 在复制校验通过后写入目标目录，只影响资源管理器/快速访问的显示，不参与任何文件读写或路径引用。
 
 ---
 

@@ -50,12 +50,7 @@ public static class FolderDisplayName
     /// </remarks>
     public static string? Resolve(string path)
     {
-        if (!Compat.IsWindows() || string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        string? resource = ReadLocalizedResourceName(path);
+        string? resource = ReadRawResourceName(path);
         if (resource is null || string.IsNullOrWhiteSpace(resource))
         {
             return null;
@@ -69,10 +64,30 @@ public static class FolderDisplayName
     }
 
     /// <summary>
-    /// 读 <c>desktop.ini</c> 的 <c>[.ShellClassInfo]</c> 段里的 <c>LocalizedResourceName</c>。
-    /// 任何读失败都当作"没有这个名字"（不是错误，调用方会回退物理名）。
+    /// 读源目录 <c>desktop.ini</c> 里<b>原始</b>的 <c>LocalizedResourceName</c> 值。
     /// </summary>
-    private static string? ReadLocalizedResourceName(string path)
+    /// <remarks>
+    /// 与 <see cref="Resolve"/> 的区别：这里不解析 <c>@module,-id</c> 间接串。
+    /// 搬到目标目录后必须写回<b>原始串</b>，才能让资源管理器按本机 UI 语言显示名称；
+    /// 写死解析后的某种语言文本会把别的语言的机器改错。
+    /// </remarks>
+    /// <param name="path">源目录绝对路径。</param>
+    /// <returns>原始资源串（可能是间接串）；没有或读失败返回 <c>null</c>。</returns>
+    public static string? ReadRawResourceName(string path)
+    {
+        if (!Compat.IsWindows() || string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        return ReadLocalizedResourceValue(path);
+    }
+
+    /// <summary>
+    /// 读 <c>desktop.ini</c> 的 <c>[.ShellClassInfo]</c> 段里的 <c>LocalizedResourceName</c>。
+    /// 任何读失败都当作"没有这个名字"（不是错误，调用方会回退到 Windows 默认显示名）。
+    /// </summary>
+    private static string? ReadLocalizedResourceValue(string path)
     {
         try
         {
@@ -158,6 +173,197 @@ public static class FolderDisplayName
         {
             // shlwapi 不可用 / 调用失败：按"解析不到"处理，绝不退化成某种硬编码名字。
             return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// 把本地化显示名资源写到目标目录的 <c>desktop.ini</c>，并设置 Shell 识别所需的属性。
+    /// </summary>
+    /// <remarks>
+    /// <b>这里只改显示，不改名。</b>磁盘目录名与注册表路径仍是调用方给出的英文物理路径；
+    /// 资源管理器/快速访问通过 <c>desktop.ini</c> 的 <c>LocalizedResourceName</c> 显示中文。
+    /// <para>
+    /// 写回的是源目录里的<b>原始资源串</b>（可能是 <c>@module,-id</c>），不是解析后的某种语言文本，
+    /// 因此换一台不同 UI 语言的机器也能正确显示。已有 <c>desktop.ini</c> 的其它段与该键之外的
+    /// 行会原样保留，只替换/插入 <c>LocalizedResourceName</c>。
+    /// </para>
+    /// </remarks>
+    /// <param name="directoryPath">目标目录（英文物理路径）。</param>
+    /// <param name="rawResourceName">源目录里读到的原始显示名资源串。</param>
+    public static OpResult ApplyToDirectory(string directoryPath, string rawResourceName)
+    {
+        if (!Compat.IsWindows())
+        {
+            return new OpResult(true, string.Empty);
+        }
+
+        if (string.IsNullOrWhiteSpace(directoryPath) || string.IsNullOrWhiteSpace(rawResourceName))
+        {
+            return new OpResult(false, "目标目录或显示名资源为空");
+        }
+
+        if (!IsValidResourceValue(rawResourceName))
+        {
+            return new OpResult(false, "显示名资源含非法字符或过长");
+        }
+
+        try
+        {
+            string directory = PathTools.ToExtended(PathTools.StripExtendedPrefix(directoryPath.Trim()));
+            if (!Directory.Exists(directory))
+            {
+                return new OpResult(false, $"目标目录不存在：{directoryPath}");
+            }
+
+            string ini = PathTools.ToExtended(
+                Path.Combine(PathTools.StripExtendedPrefix(directory), DesktopIniName));
+            Encoding encoding = DetectEncoding(ini);
+            string content = File.Exists(ini) ? File.ReadAllText(ini, encoding) : string.Empty;
+
+            File.WriteAllText(ini, UpsertLocalizedResourceName(content, rawResourceName), encoding);
+            // Shell 只在目录带 System 属性时才使用 desktop.ini；ini 自身必须是隐藏系统文件。
+            File.SetAttributes(ini, FileAttributes.Hidden | FileAttributes.System | FileAttributes.Archive);
+            var directoryInfo = new DirectoryInfo(directory);
+            if ((directoryInfo.Attributes & FileAttributes.System) == 0)
+            {
+                directoryInfo.Attributes |= FileAttributes.System;
+            }
+
+            NotifyShell();
+            return new OpResult(true, string.Empty);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException
+            or System.Security.SecurityException)
+        {
+            return new OpResult(false, ex.Message);
+        }
+    }
+
+    /// <summary>探测已有 <c>desktop.ini</c> 的编码，写回时保持原编码；新文件用带 BOM 的 UTF-8。</summary>
+    private static Encoding DetectEncoding(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        }
+
+        var head = new byte[4];
+        int read;
+        using (var stream = new FileStream(
+            PathTools.ToExtended(path), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            read = stream.Read(head, 0, head.Length);
+        }
+
+        if (read >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF)
+        {
+            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        }
+
+        if (read >= 2 && head[0] == 0xFF && head[1] == 0xFE)
+        {
+            return Encoding.Unicode;
+        }
+
+        if (read >= 2 && head[0] == 0xFE && head[1] == 0xFF)
+        {
+            return Encoding.BigEndianUnicode;
+        }
+
+        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    }
+
+    /// <summary>只替换/插入 <c>[.ShellClassInfo]</c> 里的 LocalizedResourceName，其余行原样保留。</summary>
+    private static string UpsertLocalizedResourceName(string content, string value)
+    {
+        var lines = new List<string>(
+            content.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'));
+        while (lines.Count > 0 && lines[lines.Count - 1].Length == 0)
+        {
+            lines.RemoveAt(lines.Count - 1);
+        }
+
+        int section = -1;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            if (string.Equals(lines[i].Trim(), ShellClassInfoSection, StringComparison.OrdinalIgnoreCase))
+            {
+                section = i;
+                break;
+            }
+        }
+
+        if (section < 0)
+        {
+            lines.Add(ShellClassInfoSection);
+            lines.Add(LocalizedResourceKey + "=" + value);
+            return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        }
+
+        int sectionEnd = lines.Count;
+        for (int i = section + 1; i < lines.Count; i++)
+        {
+            if (lines[i].TrimStart().StartsWith("[", StringComparison.Ordinal))
+            {
+                sectionEnd = i;
+                break;
+            }
+        }
+
+        bool replaced = false;
+        for (int i = section + 1; i < sectionEnd; i++)
+        {
+            int separator = lines[i].IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            string key = lines[i].Substring(0, separator).Trim();
+            if (string.Equals(key, LocalizedResourceKey, StringComparison.OrdinalIgnoreCase))
+            {
+                lines[i] = LocalizedResourceKey + "=" + value;
+                replaced = true;
+            }
+        }
+
+        if (!replaced)
+        {
+            lines.Insert(section + 1, LocalizedResourceKey + "=" + value);
+        }
+
+        return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+    }
+
+    /// <summary>间接串可以含 <c>\</c> <c>:</c> <c>,</c>；字面量仍按目录名规则校验。</summary>
+    private static bool IsValidResourceValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > MaxResourceChars)
+        {
+            return false;
+        }
+
+        if (value.IndexOfAny(new[] { '\r', '\n', '\0' }) >= 0)
+        {
+            return false;
+        }
+
+        return value.StartsWith("@", StringComparison.Ordinal) || IsValidDirectoryName(value);
+    }
+
+    /// <summary>通知 Shell 重新读取文件夹显示名，避免快速访问继续用旧缓存。</summary>
+    private static void NotifyShell()
+    {
+        try
+        {
+            NativeMethods.SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch (Exception)
+        {
+            // 显示刷新失败不影响数据正确性，下一次打开资源管理器仍会重新读取。
         }
     }
 

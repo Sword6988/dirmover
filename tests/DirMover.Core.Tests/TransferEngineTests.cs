@@ -9,46 +9,38 @@ namespace DirMover.Core.Tests;
 public sealed class TransferEngineTests
 {
     [Fact]
-    public void BuildPlan_TwoItemsWithSameTarget_BothBlocked()
+    public void BlockOverlappingTargets_SameTarget_DefensivelyBlocksBoth()
     {
-        // 两个不同的文件夹算出了同一个目标路径 → 必须两项都阻断。
-        //
-        // 不阻断的后果不是"报错"，而是静默合并：第一项搬完并删源，第二项看到目标已存在
-        // 就走 Merge 分支，两份内容混进同一个目录、两个注册表值都指向它 —— 用户的
-        // "一个文件夹"就这么没了。目标名来自运行时解析的显示名（可被 desktop.ini 改），
-        // 所以这个撞车是可达的，不是纯理论。
+        // 目标叶子名现在固定取规格表的英文出厂名，正常规划下两项不可能撞车。
+        // 这个闸门保留为防御：一旦以后有人改回"按运行时名字拼目标"，同一目标必须两项一起拦，
+        // 否则先搬的删源、后搬的走 Merge，两份内容混进一个目录且两个注册表值指向它。
         using var env = new EngineEnv("engine-overlap");
-
-        // 两个源目录，各自的 desktop.ini 把显示名设成同一个值。
-        string docSrc = env.Sandbox.CreateDirectoryPath("src-documents");
-        string picSrc = env.Sandbox.CreateDirectoryPath("src-pictures");
-        env.Sandbox.CreateFile(Path.Combine("src-documents", "a.txt"), "x");
-        env.Sandbox.CreateFile(Path.Combine("src-pictures", "b.txt"), "y");
-        WriteDesktopIni(docSrc, "Shared");
-        WriteDesktopIni(picSrc, "Shared");
-
-        env.SeedValue(Catalog.UserShellFoldersSubKey, "Personal", docSrc);
-        env.SeedValue(Catalog.UserShellFoldersSubKey, "My Pictures", picSrc);
-
         TransferEngine engine = env.Engine();
-        IReadOnlyList<PlanItem> plan = engine.BuildPlan(
-            new[] { "documents", "pictures" },
-            @"D:\UserData",
-            createUserDirectory: false,
-            userName: "tester",
-            scan: false);
 
-        Assert.Equal(2, plan.Count);
-        // 两项确实算出同一个目标（前提成立，否则本用例没有意义）。
-        Assert.Equal(plan[0].Target, plan[1].Target, StringComparer.OrdinalIgnoreCase);
+        var items = new List<PlanItem>
+        {
+            new()
+            {
+                Spec = Catalog.ByKey("documents")!,
+                Current = @"C:\src\Documents",
+                Target = @"D:\UserData\Shared",
+            },
+            new()
+            {
+                Spec = Catalog.ByKey("pictures")!,
+                Current = @"C:\src\Pictures",
+                Target = @"D:\UserData\Shared",
+            },
+        };
 
-        // 两项都必须带阻断原因，且文案指向"合并"这件事。
-        Assert.All(plan, item =>
+        engine.BlockOverlappingTargets(items);
+
+        Assert.All(items, item =>
         {
             Assert.NotEqual(string.Empty, item.InvalidReason);
             Assert.NotEqual(string.Empty, item.BlockingReason());
         });
-        Assert.Contains("合并", plan[0].InvalidReason, StringComparison.Ordinal);
+        Assert.Contains("合并", items[0].InvalidReason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -75,14 +67,6 @@ public sealed class TransferEngineTests
         Assert.Equal(2, plan.Count);
         Assert.NotEqual(plan[0].Target, plan[1].Target, StringComparer.OrdinalIgnoreCase);
         Assert.All(plan, item => Assert.Equal(string.Empty, item.InvalidReason));
-    }
-
-    private static void WriteDesktopIni(string sourceDirectory, string localizedName)
-    {
-        File.WriteAllText(
-            Path.Combine(sourceDirectory, "desktop.ini"),
-            "[.ShellClassInfo]\r\nLocalizedResourceName=" + localizedName + "\r\n",
-            new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 
     [Fact]
@@ -299,8 +283,7 @@ public sealed class TransferEngineTests
 
         PlanItem item = Assert.Single(plan);
         Assert.Equal(current, item.Current);
-        // 目标叶子名按运行机器解析：源目录无 desktop.ini 时回退源物理尾名（语言无关）。
-        // 不再写死任何语言的目录名，"名称必须来自源 desktop.ini"由 RunConfigTests 覆盖。
+        // 目标叶子名固定取规格表英文出厂名；中文显示由 desktop.ini 负责，不参与路径合成。
         Assert.Equal(Path.Combine(destinationRoot, "Documents"), item.Target);
         Assert.False(item.Same);
         Assert.Single(item.RegistryTargets);

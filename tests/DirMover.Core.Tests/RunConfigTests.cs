@@ -7,13 +7,13 @@ using DirMover.Core.Registry;
 namespace DirMover.Core.Tests;
 
 /// <summary>
-/// Bug 2 回归：目标目录名必须在<b>运行机器上</b>按源目录 <c>desktop.ini</c> 的本地化显示名解析，
-/// Core 里不得写死任何语言的目录名；解析不到时回退源物理尾名（语言无关）。
+/// 目标路径与显示名分离：磁盘路径始终取规格表里的英文出厂物理名，
+/// 中文显示只通过目标目录的 <c>desktop.ini</c> 生效，不参与任何路径合成。
 /// </summary>
 /// <remarks>
 /// 这里刻意<b>不写死任何一种语言的期望名</b>：报障机器与构建机可能语言不同，用户也可能自定义过
 /// 显示名。用例通过「在临时源目录里真实写入 desktop.ini」来注入名字，并特意用中/日/法/英多种语言
-/// 的字面名做参数化 —— 任何把某种语言硬编码进 Core 的实现都会在这里打红。
+/// 的字面名做参数化 —— 任何把某种语言硬编码进磁盘路径的实现都会在这里打红。
 /// </remarks>
 public sealed class RunConfigTests
 {
@@ -161,7 +161,7 @@ public sealed class RunConfigTests
     [InlineData("videos", "Videos", "视频")]
     [InlineData("downloads", "Downloads", "Téléchargements")]
     [InlineData("desktop", "Desktop", "デスクトップ")]
-    public void ComposeTarget_UsesNameFromSourceDesktopIni_NotEnglishPhysicalTail(
+    public void ComposeTarget_UsesEnglishPhysicalName_NotLocalizedDisplayName(
         string key,
         string englishTail,
         string localizedName)
@@ -178,14 +178,13 @@ public sealed class RunConfigTests
 
         string target = config.ComposeTarget(Catalog.ByKey(key)!, source, "tester");
 
-        Assert.Equal(Path.Combine(@"D:\UserData", "tester", localizedName), target);
-        // 断言"目标叶子名不是英文物理尾名"，而不是"整条路径不含该英文串"——
-        // 合法的本地化名完全可能包含英文词（例如 "My Music"），子串断言会误伤。
-        Assert.NotEqual(englishTail, Path.GetFileName(target));
+        Assert.Equal(Path.Combine(@"D:\UserData", "tester", englishTail), target);
+        Assert.Equal(englishTail, Path.GetFileName(target));
+        Assert.DoesNotContain(localizedName, target, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ComposeTarget_WithoutUserDirectory_StillUsesLocalizedName()
+    public void ComposeTarget_WithoutUserDirectory_StillUsesEnglishPhysicalName()
     {
         using var sandbox = new TempDirectory("compose-nouser");
         string source = sandbox.CreateDirectoryPath("Desktop");
@@ -198,7 +197,7 @@ public sealed class RunConfigTests
         };
 
         Assert.Equal(
-            @"D:\UserData\Bureau",
+            @"D:\UserData\Desktop",
             config.ComposeTarget(Catalog.ByKey("desktop")!, source, "tester"));
     }
 
@@ -217,11 +216,12 @@ public sealed class RunConfigTests
     }
 
     [Fact]
-    public void ComposeTarget_NoIni_FallsBackToSourcePhysicalTail()
+    public void ComposeTarget_IgnoresSourcePhysicalTail_WhenItWasRenamedToChinese()
     {
-        // 回退链第一级：解析不到本地化名时用源路径最后一段的物理名（语言无关，不凭空造名）。
-        using var sandbox = new TempDirectory("compose-fallback");
-        string source = sandbox.CreateDirectoryPath("Documents");
+        // 上一次误修复可能已经把源目录改成了中文名；新实现必须从规格表取英文出厂名，
+        // 不能从 currentPath 再取一次物理尾名，否则错误会一直延续。
+        using var sandbox = new TempDirectory("compose-renamed-source");
+        string chineseSource = sandbox.CreateDirectoryPath("文档");
         var config = new RunConfig
         {
             DestinationRoot = @"D:\UserData",
@@ -230,14 +230,13 @@ public sealed class RunConfigTests
 
         Assert.Equal(
             @"D:\UserData\Documents",
-            config.ComposeTarget(Catalog.ByKey("documents")!, source, "tester"));
+            config.ComposeTarget(Catalog.ByKey("documents")!, chineseSource, "tester"));
     }
 
     [Fact]
-    public void ComposeTarget_NoIniAndEmptyCurrent_ReturnsCurrentInsteadOfInventingName()
+    public void ComposeTarget_EmptyCurrent_StillReturnsCanonicalEnglishPath()
     {
-        // 回退链第二级：既无本地化名也无物理基名时，原样返回当前位置让 Same 判定接管。
-        // 刻意**不**回退到 spec.Display —— 那是中文界面标签，写进路径等于又引入一种语言。
+        // 当前位置未知时目标路径仍可确定；该项会被 BlockingReason() 拦下，不会执行。
         var config = new RunConfig
         {
             DestinationRoot = @"D:\UserData",
@@ -245,8 +244,49 @@ public sealed class RunConfigTests
         };
 
         Assert.Equal(
-            string.Empty,
+            @"D:\UserData\Documents",
             config.ComposeTarget(Catalog.ByKey("documents")!, string.Empty, "tester"));
+    }
+
+    // ================================================================ 显示名写入（只改显示，不改路径）
+
+    [Fact]
+    public void FolderDisplayName_RawResourceName_IsNotResolved()
+    {
+        // 目标 desktop.ini 必须写回原始间接串，换一台不同 UI 语言的机器也能正确显示。
+        using var sandbox = new TempDirectory("raw-resource");
+        string source = sandbox.CreateDirectoryPath("source");
+        const string indirect = @"@%SystemRoot%\system32\shell32.dll,-21770";
+        WriteDesktopIni(source, indirect);
+
+        Assert.Equal(indirect, FolderDisplayName.ReadRawResourceName(source));
+        Assert.NotEqual(indirect, FolderDisplayName.Resolve(source));
+    }
+
+    [Fact]
+    public void ApplyToDirectory_UpsertsResource_AndSetsShellAttributes()
+    {
+        using var sandbox = new TempDirectory("apply-display");
+        string target = sandbox.CreateDirectoryPath("Documents");
+        string ini = Path.Combine(target, "desktop.ini");
+        File.WriteAllText(
+            ini,
+            Section + "\r\nIconResource=icon.ico,0\r\nLocalizedResourceName=Old\r\n\r\n[ViewState]\r\nMode=1\r\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        OpResult result = FolderDisplayName.ApplyToDirectory(target, "文档");
+
+        Assert.True(result.Ok, result.Message);
+        string content = File.ReadAllText(ini);
+        Assert.Contains("IconResource=icon.ico,0", content, StringComparison.Ordinal);
+        Assert.Contains("[ViewState]", content, StringComparison.Ordinal);
+        Assert.Contains("LocalizedResourceName=文档", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("LocalizedResourceName=Old", content, StringComparison.Ordinal);
+        Assert.Equal("文档", FolderDisplayName.Resolve(target));
+        Assert.Equal("Documents", Path.GetFileName(target));
+        Assert.True((File.GetAttributes(ini) & (FileAttributes.Hidden | FileAttributes.System)) ==
+            (FileAttributes.Hidden | FileAttributes.System));
+        Assert.True((File.GetAttributes(target) & FileAttributes.System) != 0);
     }
 
     // ================================================================ 引擎链路
@@ -278,12 +318,12 @@ public sealed class RunConfigTests
     [InlineData("文档")]
     [InlineData("Mes documents")]
     [InlineData("ドキュメント")]
-    public async Task ExecuteAsync_CreatesLocalizedNamedDirectoryAndWritesSamePathToRegistry(
+    public async Task ExecuteAsync_CreatesEnglishDirectoryWithChineseDisplayAndWritesEnglishPathToRegistry(
         string localizedName)
     {
-        // 端到端：源是英文物理名 + 本地化 desktop.ini，目标必须落成该本地化名目录，
-        // 注册表写入值等于该路径；且不能同时生成英文物理名目录。
-        using var sandbox = new TempDirectory("e2e-localized");
+        // 端到端：目标必须是英文物理目录，中文只出现在 desktop.ini 的显示名里；
+        // 注册表写入值、文件读写路径都必须是英文路径。
+        using var sandbox = new TempDirectory("e2e-display-name");
         string source = sandbox.CreateDirectoryPath(Path.Combine("src", "Documents"));
         sandbox.CreateFile(Path.Combine("src", "Documents", "a.txt"), "hello");
         WriteDesktopIni(source, localizedName);
@@ -310,7 +350,7 @@ public sealed class RunConfigTests
                 scan: true);
 
             PlanItem item = Assert.Single(plan);
-            string expectedTarget = Path.Combine(destinationRoot, localizedName);
+            string expectedTarget = Path.Combine(destinationRoot, "Documents");
             Assert.Equal(expectedTarget, item.Target);
             Assert.Equal(expectedTarget, item.RegistryPayload);
 
@@ -319,15 +359,27 @@ public sealed class RunConfigTests
             ItemOutcome outcome = Assert.Single(report.Outcomes);
             Assert.Equal(ItemStatus.Ok, outcome.Status);
             Assert.True(Directory.Exists(expectedTarget));
-            Assert.False(Directory.Exists(Path.Combine(destinationRoot, "Documents")));
+            Assert.False(Directory.Exists(Path.Combine(destinationRoot, localizedName)));
             Assert.Equal("hello", File.ReadAllText(Path.Combine(expectedTarget, "a.txt")));
-            // 目标根下只应出现这一个目录：防止"本地化名 + 英文物理名同时生成"的半修复被判绿。
+            // 目标根下只应出现英文物理目录，不能另外生成中文目录。
             Assert.Equal(
-                new[] { localizedName },
+                new[] { "Documents" },
                 Directory.GetDirectories(destinationRoot)
                     .Select(path => Path.GetFileName(path)!)
                     .OrderBy(name => name, StringComparer.Ordinal)
                     .ToArray());
+
+            // 中文只存在于 desktop.ini，且 Shell 属性必须就位，否则资源管理器不会应用显示名。
+            string ini = Path.Combine(expectedTarget, "desktop.ini");
+            Assert.True(File.Exists(ini));
+            Assert.Contains("LocalizedResourceName=" + localizedName, File.ReadAllText(ini));
+            Assert.Equal(
+                localizedName,
+                FolderDisplayName.Resolve(expectedTarget));
+            Assert.Equal(
+                FileAttributes.Hidden | FileAttributes.System,
+                File.GetAttributes(ini) & (FileAttributes.Hidden | FileAttributes.System));
+            Assert.True((File.GetAttributes(expectedTarget) & FileAttributes.System) != 0);
 
             var write = Assert.Single(backend.Writes, entry => entry.Name == "Personal");
             Assert.Equal(expectedTarget, write.Data as string);

@@ -251,40 +251,38 @@ public sealed class RunConfig
     public void Normalize();                                      // 只留已知 key、去重、按 Catalog.All 顺序
     public static RunConfig CreateDefault(IReadOnlyList<DriveVolume> drives, bool dryRun);
 
-    /// PRD §2.1：目标 = <根>\<用户名>\<基名> / <根>\<基名>；根为空 → 返回 current（同路径语义）
-    /// 「基名」由 IO.FolderDisplayName.Resolve(currentPath) 给出，见 §3.1.1
+    /// PRD §2.1：目标 = <根>\<用户名>\<英文物理基名> / <根>\<英文物理基名>；根为空 → 返回 current（同路径语义）
+    /// 「基名」固定取 spec.DefaultPath 的最后一段，见 §3.1.1
     public string ComposeTarget(FolderSpec spec, string currentPath, string userName);
 }
 ```
 
-### 3.1.1 目标叶子名（基名）从哪里来 —— `IO.FolderDisplayName`
+### 3.1.1 路径与显示名分离 —— `IO.FolderDisplayName`
 
-**为什么需要单独一个模块**：中文/日文 Windows 上 `%USERPROFILE%\Documents` 的**物理目录名是英文**，
-中文显示名来自该目录内 `desktop.ini` 的 `[.ShellClassInfo] LocalizedResourceName`。
-复制过程不保留这个文件的 Hidden/System 属性，shell 于是回退显示英文物理名 ——
-界面目标列、导航窗格、盘上目录名一起变英文（Bug2）。
+**硬规则**：磁盘目录名与注册表路径永远是英文；中文只出现在 Shell 显示层。
 
-**解析链（`FolderDisplayName.Resolve(path)`）**：
-
-| 步骤 | 行为 |
-|---|---|
-| 1 | 读 `<path>\desktop.ini`，在 `[.ShellClassInfo]` 段找 `LocalizedResourceName` |
-| 2 | 值以 `@` 开头（间接串，如 `@%SystemRoot%\system32\shell32.dll,-21770`）→ 交给 `shlwapi!SHLoadIndirectString` 按**本机 MUI/UI 语言**解析 |
-| 3 | 字面量形态（用户自定义过显示名）→ 原样使用 |
-| 4 | `IsValidDirectoryName` 校验（非空、≤255、不含非法字符与路径分隔符、不是 `.`/`..`） |
-| 5 | 任一步失败 → 返回 `null`，`ComposeTarget` 回退 `PathTools.TailName(currentPath)`（物理名） |
+- `RunConfig.ComposeTarget` 取 `FolderSpec.DefaultPath` 的最后一段（出厂物理名），
+  **不读** `currentPath` 的物理尾名，也**不用** `desktop.ini` 的显示名拼路径。
+  这样即使源目录已经被旧版本改成中文名，也不会把错误延续下去。
+- `FolderDisplayName.ReadRawResourceName(source)` 读源 `desktop.ini` 的
+  `[.ShellClassInfo] LocalizedResourceName`，返回**原始串**（可能是 `@module,-id`），不做语言解析。
+- `TransferEngine.RunItem` 在**移动/复制之前**缓存这个原始串（同卷 rename 会搬走源目录，
+  事后再读就读不到了），在复制校验完成后、写注册表之前调用
+  `FolderDisplayName.ApplyToDirectory(target, raw)`。
+- `ApplyToDirectory` 只替换/插入目标 `desktop.ini` 的 `LocalizedResourceName`，其它段原样保留；
+  写回原始串（不解析成某种语言），并给目录加 System、给 ini 加 Hidden+System，
+  最后 `SHChangeNotify` 刷新 Shell 缓存。失败则保留源、不写注册表；rename 通道还要搬回源。
+- `FolderDisplayName.Resolve(path)` 仍保留：它把间接串解析成本机 UI 语言文本，
+  用于测试与诊断，**不参与路径合成**。
 
 **硬约束**：
 
-- Core 内**不得出现任何语言的目录名字面量**。曾有初版把 7 个简体中文名塞进
-  `FolderSpec.TargetName`，在繁中/日文/英文机器上会把别人的目录强行改名 —— 已废弃。
-  `RunConfigTests.Catalog_FolderSpecHasNoHardcodedTargetNameColumn` 用反射钉住 `FolderSpec`
-  的属性集，禁止再长出"目标名列"。
-- **不重建** `desktop.ini`：`01-prd.md` §非目标已明确不做（会给目标目录加 Read-only 且无还原路径）。
-- 不走 `SHGetLocalizedName` / `SHGetKnownFolderItem`：前者要求目录仍带 System/ReadOnly 属性
-  （正是复制后会丢掉的东西），后者要 COM interop + FOLDERID 映射，面积更大却读同一份文件。
-- 读不到就是"读不到"，**绝不退化成某种硬编码名字**。
-```
+- Core 内**不得出现任何语言的目录名字面量**。`RunConfigTests.Catalog_FolderSpecHasNoHardcodedTargetNameColumn`
+  用反射钉住 `FolderSpec` 的属性集，禁止再长出"目标名列"。
+- 不走 `SHGetLocalizedName` / `SHGetKnownFolderItem`：前者要求目录仍带 System/ReadOnly 属性，
+  后者要 COM interop + FOLDERID 映射，面积更大却读同一份 `desktop.ini`。
+- 读不到显示名不是错误：目标目录仍用英文物理名，Shell 按系统默认显示，不影响数据搬迁。
+- 显示名写入失败要显式失败，不能留下"英文路径但显示名丢失"的半完成态。
 
 ### 3.2 注册表
 

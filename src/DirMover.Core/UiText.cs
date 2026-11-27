@@ -632,6 +632,12 @@ public static class UiText
     /// <param name="detail">校验失败的具体维度与样例。</param>
     public static string VerifyFailed(string detail) => $"复制校验未通过，已保留源目录（{detail}）";
 
+    /// <summary>中文显示名写入失败：盘上目录名仍是英文，注册表未写入，源目录保留。</summary>
+    /// <param name="reason">写入 desktop.ini 失败的原因。</param>
+    /// <param name="target">目标英文路径。</param>
+    public static string DisplayNameApplyFailed(string reason, string target) =>
+        $"写入中文显示名失败：{reason}；磁盘路径仍为英文 {target}，注册表未写入、源目录已保留，修正后重试即可";
+
     /// <summary>写注册表失败：给出子键\值名、原因、就地回滚数量。</summary>
     /// <param name="subKey">子键（相对 HKCU）。</param>
     /// <param name="name">值名。</param>
